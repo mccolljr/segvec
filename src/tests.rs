@@ -361,3 +361,12 @@ fn test_segvec_hash() {
     v2.hash(&mut h2);
     assert_eq!(h1.finish(), h2.finish());
 }
+
+#[test]
+fn test_segvec_extend() {
+    let mut v = SegVec::new();
+    v.extend([1, 2, 3, 4, 5]);
+    assert_eq!(v.len(), 5);
+    assert_eq!(v.capacity(), 8);
+    assert_eq!(v.into_iter().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5]);
+}

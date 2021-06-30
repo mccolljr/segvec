@@ -625,14 +625,25 @@ where
     }
 }
 
+impl<T> Extend<T> for SegVec<T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        let iter = iter.into_iter();
+        let (min_size, max_size) = iter.size_hint();
+        let additional = max_size.unwrap_or(min_size);
+        self.reserve(additional);
+        for i in iter {
+            self.push(i);
+        }
+    }
+}
+
 impl<T> Eq for SegVec<T> where T: Eq {}
 
 impl<T> FromIterator<T> for SegVec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        iter.into_iter().fold(SegVec::new(), |mut v, t| {
-            v.push(t);
-            v
-        })
+        let mut v = SegVec::new();
+        v.extend(iter);
+        v
     }
 }
 

@@ -678,6 +678,7 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
 }
 
 impl<'a, T> FusedIterator for Iter<'a, T> {}
+impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
 /// Consuming iterator over items in a [`SegVec`][crate::SegVec].
 pub struct IntoIter<T> {
@@ -714,6 +715,9 @@ impl<T> DoubleEndedIterator for IntoIter<T> {
         }
     }
 }
+
+impl<T> FusedIterator for IntoIter<T> {}
+impl<T> ExactSizeIterator for IntoIter<T> {}
 
 /// Removes and returns elements from a range in a [`SegVec`][crate::SegVec].
 /// Any un-consumed elements are removed and dropped when a `Drain` is dropped.
@@ -760,6 +764,7 @@ impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
 }
 
 impl<'a, T> FusedIterator for Drain<'a, T> {}
+impl<'a, T> ExactSizeIterator for Drain<'a, T> {}
 
 impl<'a, T> Drop for Drain<'a, T> {
     fn drop(&mut self) {
@@ -849,6 +854,7 @@ impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
 }
 
 impl<'a, T: 'a> FusedIterator for SliceIter<'a, T> {}
+impl<'a, T: 'a> ExactSizeIterator for SliceIter<'a, T> {}
 
 /// Provides a mutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct SliceMut<'a, T: 'a> {
@@ -921,6 +927,7 @@ impl<'a, T: 'a> Iterator for SliceMutIter<'a, T> {
 }
 
 impl<'a, T: 'a> FusedIterator for SliceMutIter<'a, T> {}
+impl<'a, T: 'a> ExactSizeIterator for SliceMutIter<'a, T> {}
 
 fn checked_log2_ceil(v: usize) -> Option<u32> {
     if v > 0 {

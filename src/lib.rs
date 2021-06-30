@@ -20,6 +20,7 @@
 //! 2. You have a large append-only `Vec` and would benefit from stable references to the elements
 
 use std::{
+    cmp,
     convert::TryFrom,
     fmt::Debug,
     hash::Hash,
@@ -456,22 +457,22 @@ impl<T> SegVec<T> {
         }
     }
 
-    /// Sort the [`SegVec`][crate::SegVec] in ascending order
-    pub fn sort(&mut self)
+    /// Sort the [`SegVec`][crate::SegVec] in ascending order (unstable)
+    pub fn sort_unstable(&mut self)
     where
         T: Ord,
     {
-        self.sort_by(|a, b| a.lt(b))
+        self.sort_unstable_by(|a, b| a.cmp(b))
     }
 
-    /// Sort the [`SegVec`][crate::SegVec] in ascending order using the given comparison function
-    pub fn sort_by<F>(&mut self, mut less: F)
+    /// Sort the [`SegVec`][crate::SegVec] in ascending order (unstable) using the given comparison function
+    pub fn sort_unstable_by<F>(&mut self, mut compare: F)
     where
-        F: FnMut(&T, &T) -> bool,
+        F: FnMut(&T, &T) -> cmp::Ordering,
     {
-        fn partition<T, F>(v: &mut SegVec<T>, lo: usize, hi: usize, less: &mut F) -> usize
+        fn partition<T, F>(v: &mut SegVec<T>, lo: usize, hi: usize, compare: &mut F) -> usize
         where
-            F: FnMut(&T, &T) -> bool,
+            F: FnMut(&T, &T) -> cmp::Ordering,
         {
             let pivot = lo;
             let mut left = lo;
@@ -479,13 +480,13 @@ impl<T> SegVec<T> {
             while left < right {
                 loop {
                     left += 1;
-                    if left >= right || less(&v[pivot], &v[left]) {
+                    if left >= right || compare(&v[pivot], &v[left]).is_lt() {
                         break;
                     }
                 }
                 loop {
                     right -= 1;
-                    if right <= left || less(&v[right], &v[pivot]) {
+                    if right <= left || compare(&v[right], &v[pivot]).is_lt() {
                         break;
                     }
                 }
@@ -494,7 +495,7 @@ impl<T> SegVec<T> {
                 }
             }
 
-            let final_pivot_location = if less(&v[right], &v[pivot]) {
+            let final_pivot_location = if compare(&v[right], &v[pivot]).is_lt() {
                 right
             } else {
                 right - 1
@@ -503,24 +504,24 @@ impl<T> SegVec<T> {
             final_pivot_location
         }
 
-        pub fn quicksort<T, F>(v: &mut SegVec<T>, lo: usize, hi: usize, less: &mut F)
+        pub fn quicksort<T, F>(v: &mut SegVec<T>, lo: usize, hi: usize, compare: &mut F)
         where
-            F: FnMut(&T, &T) -> bool,
+            F: FnMut(&T, &T) -> cmp::Ordering,
         {
             if hi > lo {
                 match hi - lo {
                     1 => {
-                        if less(&v[hi], &v[lo]) {
+                        if compare(&v[hi], &v[lo]).is_lt() {
                             v.swap(lo, hi);
                         }
                     }
                     _ => {
-                        let mid = partition(v, lo, hi, less);
+                        let mid = partition(v, lo, hi, compare);
                         if mid > lo {
-                            quicksort(v, lo, mid - 1, less);
+                            quicksort(v, lo, mid - 1, compare);
                         }
                         if mid < hi {
-                            quicksort(v, mid + 1, hi, less);
+                            quicksort(v, mid + 1, hi, compare);
                         }
                     }
                 }
@@ -529,7 +530,7 @@ impl<T> SegVec<T> {
 
         match self.len() {
             0..=1 => {}
-            len => quicksort(self, 0, len - 1, &mut less),
+            len => quicksort(self, 0, len - 1, &mut compare),
         }
     }
 

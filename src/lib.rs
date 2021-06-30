@@ -1,13 +1,23 @@
-//! This crate provides the [`SegVec`][crate::SegVec] data structure. It is similar to [`Vec`][std::vec::Vec], but allocates
-//! memory in chunks of increasing size, referred to as "segments". This involves a few trade-offs - it is slower to insert and
-//! access data in a `SegVec` than it is in a normal `Vec`, and certain operations such as `SegVec::drain`, `SegVec::insert`,
-//! and `SegVec::remove` are slower than their counterparts in `Vec::drain`, `Vec::insert`, and `Vec::remove`. However, when
-//! a `SegVec` grows, it does not re-allocate, and therefore does not copy. This means that a `SegVec` that is never truncated
-//! has stable addresses for its elements.
+//! This crate provides the [`SegVec`][crate::SegVec] data structure.
 //!
-//! This crate might be appropriate if you have a long-lived `Vec` whose size fluctuates a lot during the life of your program -
-//! you can release memory back to the operating system periodically via [`SegVec::truncate`][crate::SegVec::truncate] while the `SegVec` is alive.
-//! Additionally, if you have a very large `Vec`, a `SegVec` might be more memory-friendly due to the lack of re-allocation and copying during resize.
+//! It is similar to [`Vec`][std::vec::Vec], but allocates memory in chunks of increasing size, referred to as
+//! "segments". This involves a few trade-offs:
+//!
+//! #### Pros:
+//!
+//! - Element addresses are stable across [`push`][crate::SegVec::push] operations even if the `SegVec` must grow.
+//! - Resizing only allocates the additional space needed, and doesn't require copying.
+//!
+//! #### Cons:
+//!
+//! - Operations are slower (some, like [`insert`][crate::SegVec::insert], [`remove`][crate::SegVec::remove], and [`drain`][crate::SegVec::drain], are much slower) than for a `Vec`
+//!    due to the need for multiple pointer dereferences and conversion between linear indexes and `(segment, offset)` pairs
+//! - Direct slicing is unavailable (i.e. no `&[T]` or `&mut [T]`), though `slice` and `slice_mut` are available
+//!
+//! ## Use Cases
+//!
+//! 1. You have a long-lived `Vec` whose size fluctuates between very large and very small throughout the life of the program.
+//! 2. You have a large append-only `Vec` and would benefit from stable references to the elements
 
 use std::{
     convert::TryFrom,
@@ -20,15 +30,19 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-/// A data structure similar to [`Vec`][std::vec::Vec], but that does not copy on re-size and can release memory when it is truncated.
+/// A data structure similar to [`Vec`][std::vec::Vec], but that does not copy on re-size and can
+/// release memory when it is truncated.
 ///
 /// - Capacity is allocated in "segments".
 /// - For a `SegVec` with one element, a segment of length 1 is allocated.
 /// - For a `SegVec` with 2 elements, two segments of length 1 are allocated.
-/// - For a `SegVec` with 3 or 4 elements, two segments of length one, and a segment of length 2 are allocated.
-/// - Each allocated segment is the size of the entire capacity prior to the allocation of that segment.
-/// In other words, each segment allocated doubles the capacity of the `SegVec`. As a consequence, a `SegVec`
-/// always has a capacity that is a power of 2, with the special case of the empty `SegVec` with a capacity of 0.
+/// - For a `SegVec` with 3 or 4 elements, two segments of length one, and a segment of length 2 are
+///   allocated.
+/// - Each allocated segment is the size of the entire capacity prior to the allocation of that
+///   segment.
+/// In other words, each segment allocated doubles the capacity of the `SegVec`. As a consequence, a
+/// `SegVec` always has a capacity that is a power of 2, with the special case of the empty `SegVec`
+/// with a capacity of 0.
 pub struct SegVec<T> {
     cap: usize,
     size: usize,
@@ -51,7 +65,8 @@ impl<T> SegVec<T> {
         }
     }
 
-    /// Create a new [`SegVec`][crate::SegVec] with a length of 0 and a capacity large enough to hold the given number of elements.
+    /// Create a new [`SegVec`][crate::SegVec] with a length of 0 and a capacity large enough to
+    /// hold the given number of elements.
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -91,8 +106,10 @@ impl<T> SegVec<T> {
         self.cap
     }
 
-    /// Reserve enough capacity to insert the given number of elements into the [`SegVec`][crate::SegVec] without allocating.
-    /// If the capacity is already sufficient, nothing happens.
+    /// Reserve enough capacity to insert the given number of elements into the
+    /// [`SegVec`][crate::SegVec] without allocating. If the capacity is already sufficient,
+    /// nothing happens.
+    ///
     /// ```
     /// # use segvec::SegVec;
     /// let mut v: SegVec<i32> = SegVec::new();
@@ -132,7 +149,8 @@ impl<T> SegVec<T> {
         self.cap = new_cap;
     }
 
-    /// Returns a reference to the data at the given index in the [`SegVec`][crate::SegVec], if it exists.
+    /// Returns a reference to the data at the given index in the [`SegVec`][crate::SegVec], if it
+    /// exists.
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -150,7 +168,8 @@ impl<T> SegVec<T> {
         }
     }
 
-    /// Returns a mutable reference to the data at the given index in the [`SegVec`][crate::SegVec], if it exists.
+    /// Returns a mutable reference to the data at the given index in the [`SegVec`][crate::SegVec],
+    /// if it exists.
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -186,7 +205,8 @@ impl<T> SegVec<T> {
         self.size += 1;
     }
 
-    /// Removes the last value from the [`SegVec`][crate::SegVec] and returns it, or returns `None` if it is empty.
+    /// Removes the last value from the [`SegVec`][crate::SegVec] and returns it, or returns `None`
+    /// if it is empty.
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -243,7 +263,8 @@ impl<T> SegVec<T> {
         }
     }
 
-    /// Returns an iterator over immutable references to the elements in the [`SegVec`][crate::SegVec].
+    /// Returns an iterator over immutable references to the elements in the
+    /// [`SegVec`][crate::SegVec].
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -325,8 +346,8 @@ impl<T> SegVec<T> {
         self.pop().unwrap()
     }
 
-    /// Returns an iterator that removes and returns values from within the given range of the [`SegVec`][crate::SegVec].
-    /// See [`Drain`][crate::Drain] for more information.
+    /// Returns an iterator that removes and returns values from within the given range of the
+    /// [`SegVec`][crate::SegVec]. See [`Drain`][crate::Drain] for more information.
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -379,7 +400,8 @@ impl<T> SegVec<T> {
         }
     }
 
-    /// Returns a [`SliceMut`][crate::SliceMut] over the given range in the [`SegVec`][crate::SegVec].
+    /// Returns a [`SliceMut`][crate::SliceMut] over the given range in the
+    /// [`SegVec`][crate::SegVec].
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -418,7 +440,7 @@ impl<T> SegVec<T> {
     /// v.push(5);
     /// v.push(6);
     /// v.reverse();
-    /// assert_eq!(v.into_iter().collect::<Vec<_>>(), vec![6,5,4,3,2,1]);
+    /// assert_eq!(v.into_iter().collect::<Vec<_>>(), vec![6, 5, 4, 3, 2, 1]);
     /// ```
     pub fn reverse(&mut self) {
         if self.len() < 2 {
@@ -657,6 +679,7 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
 
 impl<'a, T> FusedIterator for Iter<'a, T> {}
 
+/// Consuming iterator over items in a [`SegVec`][crate::SegVec].
 pub struct IntoIter<T> {
     size: usize,
     iter: std::iter::Flatten<std::vec::IntoIter<Vec<T>>>,
@@ -694,8 +717,9 @@ impl<T> DoubleEndedIterator for IntoIter<T> {
 
 /// Removes and returns elements from a range in a [`SegVec`][crate::SegVec].
 /// Any un-consumed elements are removed and dropped when a `Drain` is dropped.
-/// If a `Drain` is forgotten (via [`std::mem::forget`]), it is unspecified how many elements are removed.
-/// The current implementation calls `SegVec::remove` on a single element on each call to `next`.
+/// If a `Drain` is forgotten (via [`std::mem::forget`]), it is unspecified how many elements are
+/// removed. The current implementation calls `SegVec::remove` on a single element on each call to
+/// `next`.
 pub struct Drain<'a, T> {
     inner: &'a mut SegVec<T>,
     index: usize,
@@ -770,7 +794,8 @@ impl<'a, T: 'a> Slice<'a, T> {
         self.len
     }
 
-    /// Returns an iterator over immutable references to the elements of the [`Slice`][crate::Slice].
+    /// Returns an iterator over immutable references to the elements of the
+    /// [`Slice`][crate::Slice].
     pub fn iter(&self) -> SliceIter<'a, T> {
         SliceIter {
             slice: *self,
@@ -781,6 +806,7 @@ impl<'a, T: 'a> Slice<'a, T> {
 
 impl<'a, T: 'a> Index<usize> for Slice<'a, T> {
     type Output = T;
+
     fn index(&self, index: usize) -> &'a Self::Output {
         match slice_index_to_base_index(self.start, index, self.len) {
             Some(idx) => self.inner.index(idx),
@@ -790,8 +816,9 @@ impl<'a, T: 'a> Index<usize> for Slice<'a, T> {
 }
 
 impl<'a, T: 'a> IntoIterator for Slice<'a, T> {
-    type Item = &'a T;
     type IntoIter = SliceIter<'a, T>;
+    type Item = &'a T;
+
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -805,6 +832,7 @@ pub struct SliceIter<'a, T: 'a> {
 
 impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
     type Item = &'a T;
+
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.slice.len {
             self.index += 1;
@@ -838,6 +866,7 @@ impl<'a, T: 'a> SliceMut<'a, T> {
 
 impl<'a, T: 'a> Index<usize> for SliceMut<'a, T> {
     type Output = T;
+
     fn index(&self, index: usize) -> &Self::Output {
         match slice_index_to_base_index(self.start, index, self.len) {
             Some(idx) => self.inner.index(idx),
@@ -856,8 +885,9 @@ impl<'a, T: 'a> IndexMut<usize> for SliceMut<'a, T> {
 }
 
 impl<'a, T: 'a> IntoIterator for SliceMut<'a, T> {
-    type Item = &'a mut T;
     type IntoIter = SliceMutIter<'a, T>;
+    type Item = &'a mut T;
+
     fn into_iter(self) -> Self::IntoIter {
         SliceMutIter {
             slice: self,
@@ -874,6 +904,7 @@ pub struct SliceMutIter<'a, T: 'a> {
 
 impl<'a, T: 'a> Iterator for SliceMutIter<'a, T> {
     type Item = &'a mut T;
+
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.slice.len {
             self.index += 1;

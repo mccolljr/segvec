@@ -2,8 +2,10 @@
 name = "segvec"
 version = "0.1.0"
 edition = "2018"
+license = "MIT"
+authors = ["Jacob McCollum <jacob.r.mccollum@gmail.com>"]
+readme = "README.md"
+repository = "https://github.com/mccolljr/segvec/"
 
 [dev-dependencies]
 rand = "0.8.4"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

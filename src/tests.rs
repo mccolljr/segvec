@@ -1,6 +1,6 @@
 use super::*;
 use rand::{self, Rng};
-use std::cell::Cell;
+use std::{cell::Cell, collections::hash_map::DefaultHasher, hash::Hasher};
 
 struct DropCount<'a, T: Copy>(&'a Cell<usize>, T);
 
@@ -345,4 +345,19 @@ fn test_segvec_sort() {
             }
         }
     }
+}
+
+#[test]
+fn test_segvec_hash() {
+    let mut v1 = SegVec::with_capacity(8);
+    v1.push(1);
+    v1.push(2);
+    let mut v2 = SegVec::with_capacity(4);
+    v2.push(1);
+    v2.push(2);
+    let mut h1 = DefaultHasher::new();
+    v1.hash(&mut h1);
+    let mut h2 = DefaultHasher::new();
+    v2.hash(&mut h2);
+    assert_eq!(h1.finish(), h2.finish());
 }

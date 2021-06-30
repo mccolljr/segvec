@@ -1,7 +1,7 @@
 # segvec
 
-![GitHub branch checks state](https://img.shields.io/github/checks-status/mccolljr/segvec/master)
-![Documentation on docs.rs](https://docs.rs/segvec/badge.svg?version=latest)
+![docs.rs](https://docs.rs/segvec/badge.svg?version=latest)
+![crates.io](https://img.shields.io/crates/v/segvec)
 
 This crate provides the `SegVec` data structure.
 

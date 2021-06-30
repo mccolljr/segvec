@@ -338,7 +338,7 @@ fn test_segvec_sort() {
         }
 
         // sorted descending
-        v.sort();
+        v.sort_unstable();
         if i > 0 {
             for j in 0..i - 1 {
                 assert!(&v[j] <= &v[j + 1], "{:?}", v);

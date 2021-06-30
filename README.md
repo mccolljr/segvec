@@ -1,7 +1,7 @@
 # segvec
 
-![docs.rs](https://docs.rs/segvec/badge.svg?version=latest)
-![crates.io](https://img.shields.io/crates/v/segvec)
+[![docs.rs](https://docs.rs/segvec/badge.svg?version=latest)](https://docs.rs/segvec)
+[![crates.io](https://img.shields.io/crates/v/segvec)](https://crates.io/crates/segvec)
 
 This crate provides the `SegVec` data structure.
 

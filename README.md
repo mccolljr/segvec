@@ -1,5 +1,8 @@
 # segvec
 
+![GitHub branch checks state](https://img.shields.io/github/checks-status/mccolljr/segvec/master)
+![Documentation on docs.rs](https://docs.rs/segvec/badge.svg?version=latest)
+
 This crate provides the `SegVec` data structure.
 
 It is similar to `Vec`, but allocates memory in chunks of increasing size, referred to as

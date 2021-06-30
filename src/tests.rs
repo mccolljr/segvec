@@ -344,13 +344,5 @@ fn test_segvec_sort() {
                 assert!(&v[j] <= &v[j + 1], "{:?}", v);
             }
         }
-
-        // sorted ascending
-        v.sort_by(|a, b| a.gt(b));
-        if i > 0 {
-            for j in 0..i - 1 {
-                assert!(&v[j] >= &v[j + 1], "{:?}", v);
-            }
-        }
     }
 }

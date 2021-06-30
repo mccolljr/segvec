@@ -22,6 +22,7 @@
 use std::{
     convert::TryFrom,
     fmt::Debug,
+    hash::Hash,
     iter::{FromIterator, FusedIterator},
     mem,
     ops::{Bound, Index, IndexMut, RangeBounds},
@@ -603,6 +604,12 @@ impl<T> IndexMut<usize> for SegVec<T> {
 impl<T: Debug> Debug for SegVec<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+impl<T: Hash> Hash for SegVec<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.iter().for_each(|i| i.hash(state));
     }
 }
 

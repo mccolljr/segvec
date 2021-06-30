@@ -6,6 +6,7 @@ license = "MIT"
 authors = ["Jacob McCollum <jacob.r.mccollum@gmail.com>"]
 readme = "README.md"
 repository = "https://github.com/mccolljr/segvec/"
+description = "SegVec data structure for rust. Similar to Vec, but allocates memory in chunks of increasing size"
 
 [dev-dependencies]
 rand = "0.8.4"

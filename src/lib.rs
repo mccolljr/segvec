@@ -32,6 +32,8 @@ use std::{
 #[cfg(test)]
 mod tests;
 
+mod raw;
+
 /// A data structure similar to [`Vec`][std::vec::Vec], but that does not copy on re-size and can
 /// release memory when it is truncated.
 ///

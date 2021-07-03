@@ -48,24 +48,41 @@ mod raw;
 /// `SegVec` always has a capacity that is a power of 2, with the special case of the empty `SegVec`
 /// with a capacity of 0.
 pub struct SegVec<T> {
-    cap: usize,
-    size: usize,
+    len: usize,
+    capacity: usize,
     segments: Vec<Vec<T>>,
+    growth_factor: usize,
 }
 
 impl<T> SegVec<T> {
-    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0
+    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0, and the default growth factor of 1.
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// assert_eq!(v.capacity(), 0);
+    /// v.reserve(1);
+    /// assert_eq!(v.capacity(), 1);
     /// ```
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
+        Self::with_growth_factor(1)
+    }
+
+    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0, and the given growth factor.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let mut v: SegVec<i32> = SegVec::with_growth_factor(4);
+    /// assert_eq!(v.capacity(), 0);
+    /// v.reserve(1);
+    /// assert_eq!(v.capacity(), 4);
+    /// ```
+    pub const fn with_growth_factor(growth_factor: usize) -> Self {
         SegVec {
-            cap: 0,
-            size: 0,
-            segments: Vec::with_capacity(0),
+            len: 0,
+            capacity: 0,
+            segments: Vec::new(),
+            growth_factor,
         }
     }
 
@@ -80,9 +97,26 @@ impl<T> SegVec<T> {
     ///
     /// # Panics
     /// - If the required capacity overflows `usize`
-    pub fn with_capacity(hint: usize) -> Self {
+    pub fn with_capacity(capacity_hint: usize) -> Self {
         let mut v = SegVec::new();
-        v.reserve(hint);
+        v.reserve(capacity_hint);
+        v
+    }
+
+    /// Create a new [`SegVec`][crate::SegVec] with a length of 0 and a capacity large enough to
+    /// hold the given number of elements, using the provided growth factor.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let v: SegVec<i32> = SegVec::with_capacity_and_growth_factor(5, 4);
+    /// assert_eq!(v.capacity(), 8);
+    /// ```
+    ///
+    /// # Panics
+    /// - If the required capacity overflows `usize`
+    pub fn with_capacity_and_growth_factor(capacity_hint: usize, growth_factor: usize) -> Self {
+        let mut v = SegVec::with_growth_factor(growth_factor);
+        v.reserve(capacity_hint);
         v
     }
 
@@ -96,7 +130,7 @@ impl<T> SegVec<T> {
     /// assert_eq!(v.len(), 2);
     /// ```
     pub fn len(&self) -> usize {
-        self.size
+        self.len
     }
 
     /// The capacity of the [`SegVec`][crate::SegVec]
@@ -107,7 +141,7 @@ impl<T> SegVec<T> {
     /// assert_eq!(v.capacity(), 4);
     /// ```
     pub fn capacity(&self) -> usize {
-        self.cap
+        self.capacity
     }
 
     /// Reserve enough capacity to insert the given number of elements into the
@@ -125,32 +159,19 @@ impl<T> SegVec<T> {
     /// # Panics
     /// - If the required capacity overflows `usize`
     pub fn reserve(&mut self, additional: usize) {
-        let min_cap = match self.size.checked_add(additional) {
-            Some(n) => n,
+        let min_cap = match self.len().checked_add(additional) {
+            Some(c) => c,
             None => capacity_overflow(),
         };
-        if min_cap <= self.cap {
+        if min_cap <= self.capacity() {
             return;
         }
-        let new_cap = match min_cap.checked_next_power_of_two() {
-            Some(v) => v,
-            None => capacity_overflow(),
-        };
-        let current_slots = match u32::try_from(self.segments.len()) {
-            Ok(v) => v,
-            Err(_) => unreachable!(),
-        };
-        let required_slots = match checked_log2_ceil(new_cap) {
-            Some(n) => n + 1,
-            None => 1,
-        };
-        self.segments.extend(
-            (current_slots..required_slots).map(|slot_idx| match slot_idx {
-                0 => Vec::with_capacity(1),
-                n => Vec::with_capacity(2usize.pow(n - 1)),
-            }),
-        );
-        self.cap = new_cap;
+        let (segment, _) = self.segment_and_offset(min_cap - 1);
+        for i in self.segments.len()..=segment {
+            let seg_size = self.segment_capacity(i);
+            self.segments.push(Vec::with_capacity(seg_size));
+            self.capacity += seg_size;
+        }
     }
 
     /// Returns a reference to the data at the given index in the [`SegVec`][crate::SegVec], if it
@@ -164,8 +185,8 @@ impl<T> SegVec<T> {
     /// assert_eq!(*v.get(0).unwrap(), 1);
     /// ```
     pub fn get(&self, index: usize) -> Option<&T> {
-        if index < self.size {
-            let (seg, offset) = segment_and_offset(index);
+        if index < self.len {
+            let (seg, offset) = self.segment_and_offset(index);
             Some(&self.segments[seg][offset])
         } else {
             None
@@ -183,8 +204,8 @@ impl<T> SegVec<T> {
     /// assert_eq!(*v.get_mut(0).unwrap(), 1);
     /// ```
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        if index < self.size {
-            let (seg, offset) = segment_and_offset(index);
+        if index < self.len {
+            let (seg, offset) = self.segment_and_offset(index);
             Some(&mut self.segments[seg][offset])
         } else {
             None
@@ -204,9 +225,9 @@ impl<T> SegVec<T> {
     /// - If the required capacity overflows `usize`
     pub fn push(&mut self, val: T) {
         self.reserve(1);
-        let (seg, _) = segment_and_offset(self.size);
+        let (seg, _) = self.segment_and_offset(self.len);
         self.segments[seg].push(val);
-        self.size += 1;
+        self.len += 1;
     }
 
     /// Removes the last value from the [`SegVec`][crate::SegVec] and returns it, or returns `None`
@@ -219,15 +240,15 @@ impl<T> SegVec<T> {
     /// assert_eq!(v[0], 1);
     /// ```
     pub fn pop(&mut self) -> Option<T> {
-        match self.size {
+        match self.len {
             0 => None,
             size => {
-                let (seg, offset) = segment_and_offset(size);
+                let (seg, offset) = self.segment_and_offset(size);
                 let popped = match offset {
                     0 => self.segments[seg - 1].pop().unwrap(),
                     _ => self.segments[seg].pop().unwrap(),
                 };
-                self.size -= 1;
+                self.len -= 1;
                 Some(popped)
             }
         }
@@ -249,21 +270,21 @@ impl<T> SegVec<T> {
     /// assert_eq!(v.capacity(), 1);
     /// ```
     pub fn truncate(&mut self, len: usize) {
-        if len < self.cap {
-            let (seg, offset) = segment_and_offset(len);
+        if len < self.capacity {
+            let (seg, offset) = self.segment_and_offset(len);
             if offset == 0 {
                 self.segments.drain(seg..);
             } else {
-                if len < self.size {
+                if len < self.len {
                     self.segments[seg].drain(offset..);
                 }
                 self.segments.drain(seg + 1..);
             }
-            self.cap = match self.segments.len() {
+            self.capacity = match self.segments.len() {
                 0 => 0,
                 n => 2usize.pow((n - 1) as u32),
             };
-            self.size = len;
+            self.len = len;
         }
     }
 
@@ -284,7 +305,7 @@ impl<T> SegVec<T> {
     /// ```
     pub fn iter(&self) -> Iter<T> {
         Iter {
-            size: self.size,
+            size: self.len,
             iter: self.segments.iter().flatten(),
         }
     }
@@ -306,13 +327,13 @@ impl<T> SegVec<T> {
     /// - If the given index is greater than `self.len()`
     /// - If the required capacity overflows `usize`
     pub fn insert(&mut self, index: usize, val: T) {
-        if index > self.size {
-            index_oob("SegVec::insert", index, self.size);
+        if index > self.len {
+            index_oob("SegVec::insert", index, self.len);
         }
         // push val onto the end, then shift it to the correct location
         self.push(val);
         if mem::size_of::<T>() > 0 {
-            let mut pos = self.size - 1;
+            let mut pos = self.len - 1;
             while index < pos {
                 self.swap(pos, pos - 1);
                 pos -= 1;
@@ -336,13 +357,13 @@ impl<T> SegVec<T> {
     /// # Panics
     /// - If the given index is greater than or equal to `self.len()`
     pub fn remove(&mut self, index: usize) -> T {
-        if index >= self.size {
-            index_oob("SegVec::remove", index, self.size);
+        if index >= self.len {
+            index_oob("SegVec::remove", index, self.len);
         }
         // shift the value at index to the end, then pop it
         if mem::size_of::<T>() > 0 {
             let mut pos = index;
-            while pos < self.size - 1 {
+            while pos < self.len - 1 {
                 self.swap(pos, pos + 1);
                 pos += 1;
             }
@@ -464,7 +485,7 @@ impl<T> SegVec<T> {
     where
         T: Ord,
     {
-        self.sort_unstable_by(|a, b| a.cmp(b))
+        self.sort_unstable_by(Ord::cmp)
     }
 
     /// Sort the [`SegVec`][crate::SegVec] in ascending order (unstable) using the given comparison function
@@ -548,7 +569,7 @@ impl<T> SegVec<T> {
     where
         R: RangeBounds<usize>,
     {
-        let size = self.size;
+        let size = self.len;
         let start = range.start_bound();
         let start = match start {
             Bound::Included(&start) => start,
@@ -571,14 +592,48 @@ impl<T> SegVec<T> {
         }
         (start, end)
     }
+
+    fn segment_capacity(&self, segment_index: usize) -> usize {
+        match segment_index {
+            0 => self.growth_factor,
+            n => {
+                let pow = u32::try_from(n - 1).expect("fewer than 64 segments");
+                match 2usize
+                    .checked_pow(pow)
+                    .and_then(|n| n.checked_mul(self.growth_factor))
+                {
+                    Some(size) => size,
+                    None => unimplemented!("todo: capacity overflow"),
+                }
+            }
+        }
+    }
+
+    fn segment_and_offset(&self, linear_index: usize) -> (usize, usize) {
+        let normal = linear_index
+            .checked_div(self.growth_factor)
+            .expect("non-zero growth factor");
+        let (segment, pow) = match checked_log2_ceil(normal) {
+            None => (0usize, 0u32),
+            Some(s) => (s as usize + 1, s),
+        };
+        match 2usize.pow(pow).checked_mul(self.growth_factor) {
+            Some(mod_base) => {
+                let offset = linear_index % mod_base;
+                (segment, offset)
+            }
+            None => unreachable!(),
+        }
+    }
 }
 
 impl<T: Clone> Clone for SegVec<T> {
     fn clone(&self) -> Self {
         SegVec {
-            cap: self.cap,
-            size: self.size,
+            len: self.len,
+            capacity: self.capacity,
             segments: self.segments.clone(),
+            growth_factor: self.growth_factor,
         }
     }
 }
@@ -589,14 +644,14 @@ impl<T> Index<usize> for SegVec<T> {
     fn index(&self, index: usize) -> &Self::Output {
         match self.get(index) {
             Some(t) => t,
-            None => index_oob("SegVec::index", index, self.size),
+            None => index_oob("SegVec::index", index, self.len),
         }
     }
 }
 
 impl<T> IndexMut<usize> for SegVec<T> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        let size = self.size;
+        let size = self.len;
         match self.get_mut(index) {
             Some(t) => t,
             None => index_oob("SegVec::index_mut", index, size),
@@ -656,7 +711,7 @@ impl<T> IntoIterator for SegVec<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIter {
-            size: self.size,
+            size: self.len,
             iter: self.segments.into_iter().flatten(),
         }
     }

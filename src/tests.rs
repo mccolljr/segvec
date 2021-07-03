@@ -46,7 +46,7 @@ fn test_segvec_push_pop() {
     let mut v = SegVec::with_capacity(0);
     for i in 0..TEST_MAX {
         v.push(i);
-        assert_eq!(v.segments.len(), (v.cap as f64).log2() as usize + 1);
+        assert_eq!(v.segments.len(), (v.capacity as f64).log2() as usize + 1);
     }
     assert_eq!(v.len(), TEST_MAX);
     assert_eq!(v.capacity(), TEST_MAX);

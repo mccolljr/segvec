@@ -12,4 +12,5 @@ description = "SegVec data structure for rust. Similar to Vec, but allocates mem
 rand = "0.8.4"
 
 [dependencies]
-smallvec = "1.6.1"
+smallvec = { version="1.6.1", features=["const_generics"] }
+# slice-dst = "1.5.1"

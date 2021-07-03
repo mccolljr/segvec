@@ -29,6 +29,8 @@ use std::{
     ops::{Bound, Index, IndexMut, RangeBounds},
 };
 
+use smallvec::SmallVec;
+
 #[cfg(test)]
 mod tests;
 
@@ -48,10 +50,10 @@ mod raw;
 /// `SegVec` always has a capacity that is a power of 2, with the special case of the empty `SegVec`
 /// with a capacity of 0.
 pub struct SegVec<T> {
+    factor: usize,
     len: usize,
     capacity: usize,
-    segments: Vec<Vec<T>>,
-    growth_factor: usize,
+    segments: SmallVec<[Vec<T>; 3]>,
 }
 
 impl<T> SegVec<T> {
@@ -64,25 +66,25 @@ impl<T> SegVec<T> {
     /// v.reserve(1);
     /// assert_eq!(v.capacity(), 1);
     /// ```
-    pub const fn new() -> Self {
-        Self::with_growth_factor(1)
+    pub fn new() -> Self {
+        Self::with_factor(1)
     }
 
     /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0, and the given growth factor.
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::with_growth_factor(4);
+    /// let mut v: SegVec<i32> = SegVec::with_factor(4);
     /// assert_eq!(v.capacity(), 0);
     /// v.reserve(1);
     /// assert_eq!(v.capacity(), 4);
     /// ```
-    pub const fn with_growth_factor(growth_factor: usize) -> Self {
+    pub fn with_factor(factor: usize) -> Self {
         SegVec {
+            factor,
             len: 0,
             capacity: 0,
-            segments: Vec::new(),
-            growth_factor,
+            segments: SmallVec::new(),
         }
     }
 
@@ -108,14 +110,14 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let v: SegVec<i32> = SegVec::with_capacity_and_growth_factor(5, 4);
+    /// let v: SegVec<i32> = SegVec::with_capacity_and_factor(5, 4);
     /// assert_eq!(v.capacity(), 8);
     /// ```
     ///
     /// # Panics
     /// - If the required capacity overflows `usize`
-    pub fn with_capacity_and_growth_factor(capacity_hint: usize, growth_factor: usize) -> Self {
-        let mut v = SegVec::with_growth_factor(growth_factor);
+    pub fn with_capacity_and_factor(capacity_hint: usize, factor: usize) -> Self {
+        let mut v = SegVec::with_factor(factor);
         v.reserve(capacity_hint);
         v
     }
@@ -244,12 +246,11 @@ impl<T> SegVec<T> {
             0 => None,
             size => {
                 let (seg, offset) = self.segment_and_offset(size);
-                let popped = match offset {
-                    0 => self.segments[seg - 1].pop().unwrap(),
-                    _ => self.segments[seg].pop().unwrap(),
-                };
                 self.len -= 1;
-                Some(popped)
+                match offset {
+                    0 => self.segments[seg - 1].pop(),
+                    _ => self.segments[seg].pop(),
+                }
             }
         }
     }
@@ -595,12 +596,12 @@ impl<T> SegVec<T> {
 
     fn segment_capacity(&self, segment_index: usize) -> usize {
         match segment_index {
-            0 => self.growth_factor,
+            0 => self.factor,
             n => {
                 let pow = u32::try_from(n - 1).expect("fewer than 64 segments");
                 match 2usize
                     .checked_pow(pow)
-                    .and_then(|n| n.checked_mul(self.growth_factor))
+                    .and_then(|n| n.checked_mul(self.factor))
                 {
                     Some(size) => size,
                     None => unimplemented!("todo: capacity overflow"),
@@ -611,13 +612,13 @@ impl<T> SegVec<T> {
 
     fn segment_and_offset(&self, linear_index: usize) -> (usize, usize) {
         let normal = linear_index
-            .checked_div(self.growth_factor)
+            .checked_div(self.factor)
             .expect("non-zero growth factor");
         let (segment, pow) = match checked_log2_ceil(normal) {
             None => (0usize, 0u32),
             Some(s) => (s as usize + 1, s),
         };
-        match 2usize.pow(pow).checked_mul(self.growth_factor) {
+        match 2usize.pow(pow).checked_mul(self.factor) {
             Some(mod_base) => {
                 let offset = linear_index % mod_base;
                 (segment, offset)
@@ -633,7 +634,7 @@ impl<T: Clone> Clone for SegVec<T> {
             len: self.len,
             capacity: self.capacity,
             segments: self.segments.clone(),
-            growth_factor: self.growth_factor,
+            factor: self.factor,
         }
     }
 }
@@ -759,7 +760,7 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 /// Consuming iterator over items in a [`SegVec`][crate::SegVec].
 pub struct IntoIter<T> {
     size: usize,
-    iter: std::iter::Flatten<std::vec::IntoIter<Vec<T>>>,
+    iter: std::iter::Flatten<smallvec::IntoIter<[Vec<T>; 3]>>,
 }
 
 impl<T> Iterator for IntoIter<T> {
@@ -1010,17 +1011,6 @@ fn checked_log2_ceil(v: usize) -> Option<u32> {
         Some((usize::BITS - 1) - v.leading_zeros())
     } else {
         None
-    }
-}
-
-fn segment_and_offset(index: usize) -> (usize, usize) {
-    match checked_log2_ceil(index) {
-        None => (0, 0),
-        Some(l) => {
-            let b = l as usize + 1;
-            let p = index % 2usize.pow(l as u32);
-            (b, p)
-        }
     }
 }
 

@@ -57,7 +57,7 @@ pub struct SegVec<T> {
 }
 
 impl<T> SegVec<T> {
-    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0, and the default growth factor of 1.
+    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0, and the a growth factor of 1.
     ///
     /// ```
     /// # use segvec::SegVec;

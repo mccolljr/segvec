@@ -183,7 +183,11 @@ fn test_segvec_from_iter() {
 fn test_segvec_insert_remove() {
     let mut v = SegVec::with_capacity(0);
     v.insert(0, 1);
+    assert_eq!(v.len(), 1);
+    assert_eq!(v.capacity(), 1);
     v.insert(0, 2);
+    assert_eq!(v.len(), 2);
+    assert_eq!(v.capacity(), 2);
     v.insert(0, 3);
     v.insert(0, 4);
     v.insert(0, 5);
@@ -204,6 +208,25 @@ fn test_segvec_insert_remove() {
     assert_eq!(v.len(), 4);
     assert_eq!(v.capacity(), 8);
     assert_eq!(v.iter().copied().collect::<Vec<_>>(), vec![7, 6, 5, 4]);
+    assert_eq!(v.remove(1), 6);
+    assert_eq!(v.remove(1), 5);
+    assert_eq!(v.remove(1), 4);
+    assert_eq!(v.remove(0), 7);
+    assert_eq!(v.len(), 0);
+    assert_eq!(v.capacity(), 8);
+
+    let mut rng = rand::thread_rng();
+    let mut v = SegVec::with_capacity_and_factor(1024, 512);
+    for i in 0..1024 {
+        v.insert(rng.gen_range(0..=i as usize), rng.gen_range(0..100));
+    }
+    assert_eq!(v.len(), 1024);
+    assert_eq!(v.capacity(), 1024);
+    for i in (0..1024).rev() {
+        assert!(v.remove(rng.gen_range(0..=i as usize)) < 100);
+    }
+    assert_eq!(v.len(), 0);
+    assert_eq!(v.capacity(), 1024);
 }
 
 #[test]
@@ -222,6 +245,16 @@ fn test_segvec_drain() {
         // Safety: tests will drop all items before dropping the boxed cell
         (unsafe { Box::from_raw(dc) }, v)
     }
+
+    let (dc, mut sv) = make_segvec_8();
+    let d = sv.drain(2..7);
+    drop(d);
+    assert_eq!(dc.get(), 5);
+    assert_eq!(
+        sv.into_iter().map(|i| i.1).collect::<Vec<_>>(),
+        vec![1, 2, 8]
+    );
+    assert_eq!(dc.get(), 8);
 
     for i in 0..=8 {
         // range ..i

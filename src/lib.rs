@@ -339,15 +339,50 @@ impl<T> SegVec<T> {
         if index > self.len {
             index_oob("SegVec::insert", index, self.len);
         }
-        // push val onto the end, then shift it to the correct location
-        self.push(val);
-        if mem::size_of::<T>() > 0 {
-            let mut pos = self.len - 1;
-            while index < pos {
-                self.swap(pos, pos - 1);
-                pos -= 1;
+        if mem::size_of::<T>() == 0 {
+            self.push(val);
+            return;
+        }
+        self.reserve(1);
+        let (mut seg_idx, mut seg_offset) = self.segment_and_offset(index);
+        let mut displaced = val;
+        loop {
+            let maybe_displaced = unsafe {
+                let segment = &mut self.segments[seg_idx];
+                let seg_len = segment.len();
+                let seg_cap = segment.capacity();
+                if seg_len == 0 {
+                    debug_assert!(seg_offset == 0);
+                    segment.push(displaced);
+                    None
+                } else if seg_len < seg_cap {
+                    debug_assert!(seg_offset <= seg_len);
+                    let src_ptr = segment.as_mut_ptr().add(seg_offset);
+                    let dst_ptr = src_ptr.add(1);
+                    std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset);
+                    std::ptr::write(src_ptr, displaced);
+                    segment.set_len(seg_len + 1);
+                    None
+                } else {
+                    debug_assert!(seg_offset <= seg_len);
+                    let new_displaced = std::ptr::read(&mut segment[seg_len - 1]);
+                    let src_ptr = segment.as_mut_ptr().add(seg_offset);
+                    let dst_ptr = src_ptr.add(1);
+                    std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset - 1);
+                    std::ptr::write(src_ptr, displaced);
+                    Some(new_displaced)
+                }
+            };
+            match maybe_displaced {
+                Some(new_displaced) => {
+                    displaced = new_displaced;
+                    seg_idx += 1;
+                    seg_offset = 0;
+                }
+                None => break,
             }
         }
+        self.len += 1
     }
 
     /// Removes the value at the given index in the [`SegVec`][crate::SegVec] and returns it.
@@ -369,15 +404,39 @@ impl<T> SegVec<T> {
         if index >= self.len {
             index_oob("SegVec::remove", index, self.len);
         }
-        // shift the value at index to the end, then pop it
-        if mem::size_of::<T>() > 0 {
-            let mut pos = index;
-            while pos < self.len - 1 {
-                self.swap(pos, pos + 1);
-                pos += 1;
+        if mem::size_of::<T>() == 0 {
+            return self.pop().unwrap();
+        }
+        let (mut seg_idx, seg_offset) = self.segment_and_offset(index);
+        let removed = unsafe { std::ptr::read(&self.segments[seg_idx][seg_offset]) };
+        let seg_len = self.segments[seg_idx].len();
+        let seg_cap = self.segments[seg_idx].capacity();
+        let dst_ptr = &mut self.segments[seg_idx][seg_offset] as *mut T;
+        let src_ptr = unsafe { dst_ptr.add(1) };
+        unsafe { std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset - 1) };
+        unsafe { self.segments[seg_idx].set_len(seg_len - 1) };
+        if seg_len == seg_cap {
+            loop {
+                seg_idx += 1;
+                if seg_idx < self.segments.len() {
+                    let seg_len = self.segments[seg_idx].len();
+                    if seg_len > 0 {
+                        let displaced = unsafe { std::ptr::read(&self.segments[seg_idx][0]) };
+                        self.segments[seg_idx - 1].push(displaced);
+                        let dst_ptr = self.segments[seg_idx].as_mut_ptr();
+                        let src_ptr = unsafe { dst_ptr.add(1) };
+                        unsafe { std::ptr::copy(src_ptr, dst_ptr, seg_len - 1) };
+                        unsafe { self.segments[seg_idx].set_len(seg_len - 1) };
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
             }
         }
-        self.pop().unwrap()
+        self.len -= 1;
+        return removed;
     }
 
     /// Returns an iterator that removes and returns values from within the given range of the

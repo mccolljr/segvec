@@ -14,11 +14,11 @@ struct Header<T> {
 }
 
 impl<T> Header<T> {
-    pub fn allocate(cap: NonZeroUsize) -> NonNull<Header<T>> {
+    fn allocate(cap: NonZeroUsize) -> NonNull<Header<T>> {
         Self::header_with_capacity(cap)
     }
 
-    pub unsafe fn deallocate(head: *mut Header<T>) {
+    unsafe fn deallocate(head: *mut Header<T>) {
         let cap = (&*head).capacity();
         std::alloc::dealloc(head as *mut u8, Self::layout(cap))
     }
@@ -97,28 +97,28 @@ impl<T> Header<T> {
 }
 
 #[repr(transparent)]
-struct Segment<T>(Option<NonNull<Header<T>>>);
+pub struct Segment<T>(Option<NonNull<Header<T>>>);
 
 impl<T> Segment<T> {
-    fn new(cap: NonZeroUsize) -> Self {
+    pub fn new(cap: NonZeroUsize) -> Self {
         Segment(Some(Header::<T>::allocate(cap)))
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self.0 {
             Some(ptr) => unsafe { ptr.as_ref() }.len(),
             None => 0,
         }
     }
 
-    fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         match self.0 {
             Some(ptr) => unsafe { ptr.as_ref() }.capacity(),
             None => 0,
         }
     }
 
-    fn get(&self, index: usize) -> Option<&T> {
+    pub fn get(&self, index: usize) -> Option<&T> {
         match self.0 {
             Some(ptr) => unsafe {
                 let header = ptr.as_ref();
@@ -131,7 +131,7 @@ impl<T> Segment<T> {
         }
     }
 
-    fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         match self.0 {
             Some(ptr) => unsafe {
                 let header = ptr.as_ref();
@@ -144,7 +144,7 @@ impl<T> Segment<T> {
         }
     }
 
-    fn push(&mut self, val: T) {
+    pub fn push(&mut self, val: T) {
         match self.0 {
             Some(mut ptr) => {
                 let header = unsafe { ptr.as_mut() };
@@ -160,7 +160,7 @@ impl<T> Segment<T> {
         }
     }
 
-    fn pop(&mut self) -> Option<T> {
+    pub fn pop(&mut self) -> Option<T> {
         match self.0 {
             Some(mut ptr) => {
                 let header = unsafe { ptr.as_mut() };

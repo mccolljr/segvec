@@ -30,12 +30,13 @@ use std::{
     ops::{Bound, Index, IndexMut, RangeBounds},
 };
 
+#[cfg(feature = "small-vec")]
 use smallvec::SmallVec;
+#[cfg(feature = "thin-segments")]
+use thinvec::ThinVec;
 
 #[cfg(test)]
 mod tests;
-
-mod raw;
 
 /// A data structure similar to [`Vec`][std::vec::Vec], but that does not copy on re-size and can
 /// release memory when it is truncated.
@@ -57,7 +58,10 @@ pub struct SegVec<T> {
     factor: NonZeroUsize,
     len: usize,
     capacity: usize,
+    #[cfg(feature = "small-vec")]
     segments: SmallVec<[Vec<T>; 3]>,
+    #[cfg(not(feature = "small-vec"))]
+    segments: Vec<Vec<T>>,
 }
 
 impl<T> SegVec<T> {
@@ -92,7 +96,10 @@ impl<T> SegVec<T> {
             factor,
             len: 0,
             capacity: 0,
+            #[cfg(feature = "small-vec")]
             segments: SmallVec::new(),
+            #[cfg(not(feature = "small-vec"))]
+            segments: Vec::new(),
         }
     }
 
@@ -827,7 +834,10 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 /// Consuming iterator over items in a [`SegVec`][crate::SegVec].
 pub struct IntoIter<T> {
     size: usize,
+    #[cfg(feature = "small-vec")]
     iter: std::iter::Flatten<smallvec::IntoIter<[Vec<T>; 3]>>,
+    #[cfg(not(feature = "small-vec"))]
+    iter: std::iter::Flatten<std::vec::IntoIter<Vec<T>>>,
 }
 
 impl<T> Iterator for IntoIter<T> {

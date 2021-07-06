@@ -403,3 +403,13 @@ fn test_segvec_extend() {
     assert_eq!(v.capacity(), 8);
     assert_eq!(v.into_iter().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5]);
 }
+
+#[test]
+#[should_panic(expected = "capacity overflow")]
+fn test_segvec_stress_growth_factor_too_large() {
+    let mut sv = SegVec::<u16>::with_factor(usize::MAX);
+    sv.reserve(1);
+    sv.push(1);
+    assert_eq!(sv.len(), 1);
+    assert_eq!(sv.capacity(), usize::MAX);
+}

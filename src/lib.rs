@@ -18,6 +18,11 @@
 //!
 //! 1. You have a long-lived `Vec` whose size fluctuates between very large and very small throughout the life of the program.
 //! 2. You have a large append-only `Vec` and would benefit from stable references to the elements
+//!
+//! ## Features
+//!
+//! - `small-vec` - Uses [`SmallVec`](https://github.com/servo/rust-smallvec) instead of `Vec` to store the list of segments, allowing the first few segment headers to live on the stack. Can speed up access for small `SegVec` values.
+//! - `thin-segments` - Uses [`ThinVec`](https://github.com/Gankra/thin-vec) instead of `Vec` to store the data for each segment, meaning that each segment header takes up the space of a single `usize`, rathern than 3 when using `Vec`.
 
 use std::{
     cmp,
@@ -26,49 +31,86 @@ use std::{
     hash::Hash,
     iter::{FromIterator, FusedIterator},
     mem,
+    num::NonZeroUsize,
     ops::{Bound, Index, IndexMut, RangeBounds},
 };
 
 #[cfg(test)]
 mod tests;
 
+mod inner {
+    #[cfg(feature = "thin-segments")]
+    pub type Segment<T> = thin_vec::ThinVec<T>;
+    #[cfg(not(feature = "thin-segments"))]
+    pub type Segment<T> = Vec<T>;
+
+    #[cfg(feature = "small-vec")]
+    pub type Segments<T> = smallvec::SmallVec<[Segment<T>; 3]>;
+    #[cfg(not(feature = "small-vec"))]
+    pub type Segments<T> = Vec<Segment<T>>;
+}
+
 /// A data structure similar to [`Vec`][std::vec::Vec], but that does not copy on re-size and can
 /// release memory when it is truncated.
 ///
-/// - Capacity is allocated in "segments".
-/// - For a `SegVec` with one element, a segment of length 1 is allocated.
-/// - For a `SegVec` with 2 elements, two segments of length 1 are allocated.
-/// - For a `SegVec` with 3 or 4 elements, two segments of length one, and a segment of length 2 are
-///   allocated.
-/// - Each allocated segment is the size of the entire capacity prior to the allocation of that
-///   segment.
-/// In other words, each segment allocated doubles the capacity of the `SegVec`. As a consequence, a
-/// `SegVec` always has a capacity that is a power of 2, with the special case of the empty `SegVec`
-/// with a capacity of 0.
+/// Capacity is allocated in "segments". Assuming the default growth factor of 1:
+/// - A `SegVec` with a capacity of 0 does not allocate.
+/// - A `SegVec` with a capacity of 1 allocates a single segment of length 1.
+/// - A `SegVec` with a capacity of 2 allocates two segments of length 1.
+/// - A `SegVec` with a capacity of 3 or 4 elements allocates two segments of length one, and a segment of length 2.
+///
+/// Each subsequent segment is allocated with a capacity equal to the total capacity of the preceeding
+/// segments. In other words, each segment after the first segment doubles the capacity of the `SegVec`.
+/// If the growth factor is a power of two (such as the default growth factor of 1), the capacity of the
+/// `SegVec` will always be a power of two.
+///
+/// It is possible to specify a growth factor using [`SegVec::with_factor`][crate::SegVec::with_factor].
+/// By choosing an appropriate growth factor, allocation count and memory usage can be fine-tuned.
 pub struct SegVec<T> {
-    cap: usize,
-    size: usize,
-    segments: Vec<Vec<T>>,
+    factor: NonZeroUsize,
+    len: usize,
+    capacity: usize,
+    segments: inner::Segments<T>,
 }
 
 impl<T> SegVec<T> {
-    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0
+    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0 using the default growth factor of 1.
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// assert_eq!(v.capacity(), 0);
+    /// v.reserve(1);
+    /// assert_eq!(v.capacity(), 1);
     /// ```
     pub fn new() -> Self {
+        Self::with_factor(1)
+    }
+
+    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0, and the given growth factor.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let mut v: SegVec<i32> = SegVec::with_factor(4);
+    /// assert_eq!(v.capacity(), 0);
+    /// v.reserve(1);
+    /// assert_eq!(v.capacity(), 4);
+    /// ```
+    ///
+    /// # Panics
+    /// - If `factor` is zero
+    pub fn with_factor(factor: usize) -> Self {
+        let factor = NonZeroUsize::new(factor).expect("non-zero factor");
         SegVec {
-            cap: 0,
-            size: 0,
-            segments: Vec::with_capacity(0),
+            factor,
+            len: 0,
+            capacity: 0,
+            segments: inner::Segments::new(),
         }
     }
 
     /// Create a new [`SegVec`][crate::SegVec] with a length of 0 and a capacity large enough to
-    /// hold the given number of elements.
+    /// hold the given number of elements, using the default growth factor of 1.
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -78,9 +120,26 @@ impl<T> SegVec<T> {
     ///
     /// # Panics
     /// - If the required capacity overflows `usize`
-    pub fn with_capacity(hint: usize) -> Self {
+    pub fn with_capacity(capacity_hint: usize) -> Self {
         let mut v = SegVec::new();
-        v.reserve(hint);
+        v.reserve(capacity_hint);
+        v
+    }
+
+    /// Create a new [`SegVec`][crate::SegVec] with a length of 0 and a capacity large enough to
+    /// hold the given number of elements, using the provided growth factor.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let v: SegVec<i32> = SegVec::with_capacity_and_factor(5, 4);
+    /// assert_eq!(v.capacity(), 8);
+    /// ```
+    ///
+    /// # Panics
+    /// - If the required capacity overflows `usize`
+    pub fn with_capacity_and_factor(capacity_hint: usize, factor: usize) -> Self {
+        let mut v = SegVec::with_factor(factor);
+        v.reserve(capacity_hint);
         v
     }
 
@@ -94,7 +153,7 @@ impl<T> SegVec<T> {
     /// assert_eq!(v.len(), 2);
     /// ```
     pub fn len(&self) -> usize {
-        self.size
+        self.len
     }
 
     /// The capacity of the [`SegVec`][crate::SegVec]
@@ -105,7 +164,7 @@ impl<T> SegVec<T> {
     /// assert_eq!(v.capacity(), 4);
     /// ```
     pub fn capacity(&self) -> usize {
-        self.cap
+        self.capacity
     }
 
     /// Reserve enough capacity to insert the given number of elements into the
@@ -123,32 +182,22 @@ impl<T> SegVec<T> {
     /// # Panics
     /// - If the required capacity overflows `usize`
     pub fn reserve(&mut self, additional: usize) {
-        let min_cap = match self.size.checked_add(additional) {
-            Some(n) => n,
+        let min_cap = match self.len().checked_add(additional) {
+            Some(c) => c,
             None => capacity_overflow(),
         };
-        if min_cap <= self.cap {
+        if min_cap <= self.capacity() {
             return;
         }
-        let new_cap = match min_cap.checked_next_power_of_two() {
-            Some(v) => v,
-            None => capacity_overflow(),
-        };
-        let current_slots = match u32::try_from(self.segments.len()) {
-            Ok(v) => v,
-            Err(_) => unreachable!(),
-        };
-        let required_slots = match checked_log2_ceil(new_cap) {
-            Some(n) => n + 1,
-            None => 1,
-        };
-        self.segments.extend(
-            (current_slots..required_slots).map(|slot_idx| match slot_idx {
-                0 => Vec::with_capacity(1),
-                n => Vec::with_capacity(2usize.pow(n - 1)),
-            }),
-        );
-        self.cap = new_cap;
+        let (segment, _) = self.segment_and_offset(min_cap - 1);
+        for i in self.segments.len()..=segment {
+            let seg_size = self.segment_capacity(i);
+            #[cfg(feature = "thin-segments")]
+            self.segments.push(inner::Segment::with_capacity(seg_size));
+            #[cfg(not(feature = "thin-segments"))]
+            self.segments.push(Vec::with_capacity(seg_size));
+            self.capacity += seg_size;
+        }
     }
 
     /// Returns a reference to the data at the given index in the [`SegVec`][crate::SegVec], if it
@@ -162,8 +211,8 @@ impl<T> SegVec<T> {
     /// assert_eq!(*v.get(0).unwrap(), 1);
     /// ```
     pub fn get(&self, index: usize) -> Option<&T> {
-        if index < self.size {
-            let (seg, offset) = segment_and_offset(index);
+        if index < self.len {
+            let (seg, offset) = self.segment_and_offset(index);
             Some(&self.segments[seg][offset])
         } else {
             None
@@ -181,8 +230,8 @@ impl<T> SegVec<T> {
     /// assert_eq!(*v.get_mut(0).unwrap(), 1);
     /// ```
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        if index < self.size {
-            let (seg, offset) = segment_and_offset(index);
+        if index < self.len {
+            let (seg, offset) = self.segment_and_offset(index);
             Some(&mut self.segments[seg][offset])
         } else {
             None
@@ -202,9 +251,9 @@ impl<T> SegVec<T> {
     /// - If the required capacity overflows `usize`
     pub fn push(&mut self, val: T) {
         self.reserve(1);
-        let (seg, _) = segment_and_offset(self.size);
+        let (seg, _) = self.segment_and_offset(self.len);
         self.segments[seg].push(val);
-        self.size += 1;
+        self.len += 1;
     }
 
     /// Removes the last value from the [`SegVec`][crate::SegVec] and returns it, or returns `None`
@@ -214,19 +263,18 @@ impl<T> SegVec<T> {
     /// # use segvec::SegVec;
     /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
-    /// assert_eq!(v[0], 1);
+    /// assert_eq!(v.pop().unwrap(), 1);
     /// ```
     pub fn pop(&mut self) -> Option<T> {
-        match self.size {
+        match self.len {
             0 => None,
             size => {
-                let (seg, offset) = segment_and_offset(size);
-                let popped = match offset {
-                    0 => self.segments[seg - 1].pop().unwrap(),
-                    _ => self.segments[seg].pop().unwrap(),
-                };
-                self.size -= 1;
-                Some(popped)
+                let (seg, offset) = self.segment_and_offset(size);
+                self.len -= 1;
+                match offset {
+                    0 => self.segments[seg - 1].pop(),
+                    _ => self.segments[seg].pop(),
+                }
             }
         }
     }
@@ -247,21 +295,21 @@ impl<T> SegVec<T> {
     /// assert_eq!(v.capacity(), 1);
     /// ```
     pub fn truncate(&mut self, len: usize) {
-        if len < self.cap {
-            let (seg, offset) = segment_and_offset(len);
+        if len < self.capacity {
+            let (seg, offset) = self.segment_and_offset(len);
             if offset == 0 {
                 self.segments.drain(seg..);
             } else {
-                if len < self.size {
+                if len < self.len {
                     self.segments[seg].drain(offset..);
                 }
                 self.segments.drain(seg + 1..);
             }
-            self.cap = match self.segments.len() {
+            self.capacity = match self.segments.len() {
                 0 => 0,
                 n => 2usize.pow((n - 1) as u32),
             };
-            self.size = len;
+            self.len = len;
         }
     }
 
@@ -282,7 +330,7 @@ impl<T> SegVec<T> {
     /// ```
     pub fn iter(&self) -> Iter<T> {
         Iter {
-            size: self.size,
+            size: self.len,
             iter: self.segments.iter().flatten(),
         }
     }
@@ -304,18 +352,53 @@ impl<T> SegVec<T> {
     /// - If the given index is greater than `self.len()`
     /// - If the required capacity overflows `usize`
     pub fn insert(&mut self, index: usize, val: T) {
-        if index > self.size {
-            index_oob("SegVec::insert", index, self.size);
+        if index > self.len {
+            index_oob("SegVec::insert", index, self.len);
         }
-        // push val onto the end, then shift it to the correct location
-        self.push(val);
-        if mem::size_of::<T>() > 0 {
-            let mut pos = self.size - 1;
-            while index < pos {
-                self.swap(pos, pos - 1);
-                pos -= 1;
+        if mem::size_of::<T>() == 0 {
+            self.push(val);
+            return;
+        }
+        self.reserve(1);
+        let (mut seg_idx, mut seg_offset) = self.segment_and_offset(index);
+        let mut displaced = val;
+        loop {
+            let maybe_displaced = unsafe {
+                let segment = &mut self.segments[seg_idx];
+                let seg_len = segment.len();
+                let seg_cap = segment.capacity();
+                if seg_len == 0 {
+                    debug_assert!(seg_offset == 0);
+                    segment.push(displaced);
+                    None
+                } else if seg_len < seg_cap {
+                    debug_assert!(seg_offset <= seg_len);
+                    let src_ptr = segment.as_mut_ptr().add(seg_offset);
+                    let dst_ptr = src_ptr.add(1);
+                    std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset);
+                    std::ptr::write(src_ptr, displaced);
+                    segment.set_len(seg_len + 1);
+                    None
+                } else {
+                    debug_assert!(seg_offset <= seg_len);
+                    let new_displaced = std::ptr::read(&mut segment[seg_len - 1]);
+                    let src_ptr = segment.as_mut_ptr().add(seg_offset);
+                    let dst_ptr = src_ptr.add(1);
+                    std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset - 1);
+                    std::ptr::write(src_ptr, displaced);
+                    Some(new_displaced)
+                }
+            };
+            match maybe_displaced {
+                Some(new_displaced) => {
+                    displaced = new_displaced;
+                    seg_idx += 1;
+                    seg_offset = 0;
+                }
+                None => break,
             }
         }
+        self.len += 1
     }
 
     /// Removes the value at the given index in the [`SegVec`][crate::SegVec] and returns it.
@@ -334,18 +417,42 @@ impl<T> SegVec<T> {
     /// # Panics
     /// - If the given index is greater than or equal to `self.len()`
     pub fn remove(&mut self, index: usize) -> T {
-        if index >= self.size {
-            index_oob("SegVec::remove", index, self.size);
+        if index >= self.len {
+            index_oob("SegVec::remove", index, self.len);
         }
-        // shift the value at index to the end, then pop it
-        if mem::size_of::<T>() > 0 {
-            let mut pos = index;
-            while pos < self.size - 1 {
-                self.swap(pos, pos + 1);
-                pos += 1;
+        if mem::size_of::<T>() == 0 {
+            return self.pop().unwrap();
+        }
+        let (mut seg_idx, seg_offset) = self.segment_and_offset(index);
+        let removed = unsafe { std::ptr::read(&self.segments[seg_idx][seg_offset]) };
+        let seg_len = self.segments[seg_idx].len();
+        let seg_cap = self.segments[seg_idx].capacity();
+        let dst_ptr = &mut self.segments[seg_idx][seg_offset] as *mut T;
+        let src_ptr = unsafe { dst_ptr.add(1) };
+        unsafe { std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset - 1) };
+        unsafe { self.segments[seg_idx].set_len(seg_len - 1) };
+        if seg_len == seg_cap {
+            loop {
+                seg_idx += 1;
+                if seg_idx < self.segments.len() {
+                    let seg_len = self.segments[seg_idx].len();
+                    if seg_len > 0 {
+                        let displaced = unsafe { std::ptr::read(&self.segments[seg_idx][0]) };
+                        self.segments[seg_idx - 1].push(displaced);
+                        let dst_ptr = self.segments[seg_idx].as_mut_ptr();
+                        let src_ptr = unsafe { dst_ptr.add(1) };
+                        unsafe { std::ptr::copy(src_ptr, dst_ptr, seg_len - 1) };
+                        unsafe { self.segments[seg_idx].set_len(seg_len - 1) };
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
             }
         }
-        self.pop().unwrap()
+        self.len -= 1;
+        return removed;
     }
 
     /// Returns an iterator that removes and returns values from within the given range of the
@@ -462,7 +569,7 @@ impl<T> SegVec<T> {
     where
         T: Ord,
     {
-        self.sort_unstable_by(|a, b| a.cmp(b))
+        self.sort_unstable_by(Ord::cmp)
     }
 
     /// Sort the [`SegVec`][crate::SegVec] in ascending order (unstable) using the given comparison function
@@ -546,7 +653,7 @@ impl<T> SegVec<T> {
     where
         R: RangeBounds<usize>,
     {
-        let size = self.size;
+        let size = self.len;
         let start = range.start_bound();
         let start = match start {
             Bound::Included(&start) => start,
@@ -569,14 +676,48 @@ impl<T> SegVec<T> {
         }
         (start, end)
     }
+
+    fn segment_capacity(&self, segment_index: usize) -> usize {
+        match segment_index {
+            0 => self.factor.get(),
+            n => {
+                let pow = u32::try_from(n - 1).expect("fewer than 64 segments");
+                match 2usize
+                    .checked_pow(pow)
+                    .and_then(|n| n.checked_mul(self.factor.get()))
+                {
+                    Some(size) => size,
+                    None => unimplemented!("todo: capacity overflow"),
+                }
+            }
+        }
+    }
+
+    fn segment_and_offset(&self, linear_index: usize) -> (usize, usize) {
+        let normal = linear_index
+            .checked_div(self.factor.get())
+            .expect("non-zero growth factor");
+        let (segment, pow) = match checked_log2_ceil(normal) {
+            None => (0usize, 0u32),
+            Some(s) => (s as usize + 1, s),
+        };
+        match 2usize.pow(pow).checked_mul(self.factor.get()) {
+            Some(mod_base) => {
+                let offset = linear_index % mod_base;
+                (segment, offset)
+            }
+            None => unreachable!(),
+        }
+    }
 }
 
 impl<T: Clone> Clone for SegVec<T> {
     fn clone(&self) -> Self {
         SegVec {
-            cap: self.cap,
-            size: self.size,
+            len: self.len,
+            capacity: self.capacity,
             segments: self.segments.clone(),
+            factor: self.factor,
         }
     }
 }
@@ -587,14 +728,14 @@ impl<T> Index<usize> for SegVec<T> {
     fn index(&self, index: usize) -> &Self::Output {
         match self.get(index) {
             Some(t) => t,
-            None => index_oob("SegVec::index", index, self.size),
+            None => index_oob("SegVec::index", index, self.len),
         }
     }
 }
 
 impl<T> IndexMut<usize> for SegVec<T> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        let size = self.size;
+        let size = self.len;
         match self.get_mut(index) {
             Some(t) => t,
             None => index_oob("SegVec::index_mut", index, size),
@@ -654,7 +795,7 @@ impl<T> IntoIterator for SegVec<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         IntoIter {
-            size: self.size,
+            size: self.len,
             iter: self.segments.into_iter().flatten(),
         }
     }
@@ -663,7 +804,7 @@ impl<T> IntoIterator for SegVec<T> {
 /// Iterator over immutable references to items in a [`SegVec`][crate::SegVec].
 pub struct Iter<'a, T> {
     size: usize,
-    iter: std::iter::Flatten<std::slice::Iter<'a, Vec<T>>>,
+    iter: std::iter::Flatten<std::slice::Iter<'a, inner::Segment<T>>>,
 }
 
 impl<'a, T: 'a> Iterator for Iter<'a, T> {
@@ -702,7 +843,7 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 /// Consuming iterator over items in a [`SegVec`][crate::SegVec].
 pub struct IntoIter<T> {
     size: usize,
-    iter: std::iter::Flatten<std::vec::IntoIter<Vec<T>>>,
+    iter: std::iter::Flatten<<inner::Segments<T> as std::iter::IntoIterator>::IntoIter>,
 }
 
 impl<T> Iterator for IntoIter<T> {
@@ -953,17 +1094,6 @@ fn checked_log2_ceil(v: usize) -> Option<u32> {
         Some((usize::BITS - 1) - v.leading_zeros())
     } else {
         None
-    }
-}
-
-fn segment_and_offset(index: usize) -> (usize, usize) {
-    match checked_log2_ceil(index) {
-        None => (0, 0),
-        Some(l) => {
-            let b = l as usize + 1;
-            let p = index % 2usize.pow(l as u32);
-            (b, p)
-        }
     }
 }
 

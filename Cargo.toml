@@ -1,6 +1,6 @@
 [package]
 name = "segvec"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2018"
 license = "MIT"
 authors = ["Jacob McCollum <jacob.r.mccollum@gmail.com>"]
@@ -10,3 +10,16 @@ description = "SegVec data structure for rust. Similar to Vec, but allocates mem
 
 [dev-dependencies]
 rand = "0.8.4"
+criterion = "0.3.4"
+
+[dependencies]
+smallvec = { version="1.6.1", features=["const_generics"], optional=true }
+thin-vec = { version="0.2.3", optional=true }
+
+[features]
+small-vec = ["smallvec"]
+thin-segments = ["thin-vec"]
+
+[[bench]]
+name = "segvec_benchmark"
+harness = false

@@ -26,6 +26,7 @@ use std::{
     hash::Hash,
     iter::{FromIterator, FusedIterator},
     mem,
+    num::NonZeroUsize,
     ops::{Bound, Index, IndexMut, RangeBounds},
 };
 
@@ -39,25 +40,28 @@ mod raw;
 /// A data structure similar to [`Vec`][std::vec::Vec], but that does not copy on re-size and can
 /// release memory when it is truncated.
 ///
-/// - Capacity is allocated in "segments".
-/// - For a `SegVec` with one element, a segment of length 1 is allocated.
-/// - For a `SegVec` with 2 elements, two segments of length 1 are allocated.
-/// - For a `SegVec` with 3 or 4 elements, two segments of length one, and a segment of length 2 are
-///   allocated.
-/// - Each allocated segment is the size of the entire capacity prior to the allocation of that
-///   segment.
-/// In other words, each segment allocated doubles the capacity of the `SegVec`. As a consequence, a
-/// `SegVec` always has a capacity that is a power of 2, with the special case of the empty `SegVec`
-/// with a capacity of 0.
+/// Capacity is allocated in "segments". Assuming the default growth factor of 1:
+/// - A `SegVec` with a capacity of 0 does not allocate.
+/// - A `SegVec` with a capacity of 1 allocates a single segment of length 1.
+/// - A `SegVec` with a capacity of 2 allocates two segments of length 1.
+/// - A `SegVec` with a capacity of 3 or 4 elements allocates two segments of length one, and a segment of length 2.
+///
+/// Each subsequent segment is allocated with a capacity equal to the total capacity of the preceeding
+/// segments. In other words, each segment after the first segment doubles the capacity of the `SegVec`.
+/// If the growth factor is a power of two (such as the default growth factor of 1), the capacity of the
+/// `SegVec` will always be a power of two.
+///
+/// It is possible to specify a growth factor using [`SegVec::with_factor`][crate::SegVec::with_factor].
+/// By choosing an appropriate growth factor, allocation count and memory usage can be fine-tuned.
 pub struct SegVec<T> {
-    factor: usize,
+    factor: NonZeroUsize,
     len: usize,
     capacity: usize,
     segments: SmallVec<[Vec<T>; 3]>,
 }
 
 impl<T> SegVec<T> {
-    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0, and the a growth factor of 1.
+    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0 using the default growth factor of 1.
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -79,7 +83,11 @@ impl<T> SegVec<T> {
     /// v.reserve(1);
     /// assert_eq!(v.capacity(), 4);
     /// ```
+    ///
+    /// # Panics
+    /// - If `factor` is zero
     pub fn with_factor(factor: usize) -> Self {
+        let factor = NonZeroUsize::new(factor).expect("non-zero factor");
         SegVec {
             factor,
             len: 0,
@@ -89,7 +97,7 @@ impl<T> SegVec<T> {
     }
 
     /// Create a new [`SegVec`][crate::SegVec] with a length of 0 and a capacity large enough to
-    /// hold the given number of elements.
+    /// hold the given number of elements, using the default growth factor of 1.
     ///
     /// ```
     /// # use segvec::SegVec;
@@ -239,7 +247,7 @@ impl<T> SegVec<T> {
     /// # use segvec::SegVec;
     /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
-    /// assert_eq!(v[0], 1);
+    /// assert_eq!(v.pop().unwrap(), 1);
     /// ```
     pub fn pop(&mut self) -> Option<T> {
         match self.len {
@@ -596,12 +604,12 @@ impl<T> SegVec<T> {
 
     fn segment_capacity(&self, segment_index: usize) -> usize {
         match segment_index {
-            0 => self.factor,
+            0 => self.factor.get(),
             n => {
                 let pow = u32::try_from(n - 1).expect("fewer than 64 segments");
                 match 2usize
                     .checked_pow(pow)
-                    .and_then(|n| n.checked_mul(self.factor))
+                    .and_then(|n| n.checked_mul(self.factor.get()))
                 {
                     Some(size) => size,
                     None => unimplemented!("todo: capacity overflow"),
@@ -612,13 +620,13 @@ impl<T> SegVec<T> {
 
     fn segment_and_offset(&self, linear_index: usize) -> (usize, usize) {
         let normal = linear_index
-            .checked_div(self.factor)
+            .checked_div(self.factor.get())
             .expect("non-zero growth factor");
         let (segment, pow) = match checked_log2_ceil(normal) {
             None => (0usize, 0u32),
             Some(s) => (s as usize + 1, s),
         };
-        match 2usize.pow(pow).checked_mul(self.factor) {
+        match 2usize.pow(pow).checked_mul(self.factor.get()) {
             Some(mod_base) => {
                 let offset = linear_index % mod_base;
                 (segment, offset)

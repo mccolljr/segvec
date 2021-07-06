@@ -24,7 +24,11 @@ jobs:
         run: |
           cargo check --verbose;
           cargo check --features small-vec --verbose;
+          cargo check --features thin-segments --verbose;
+          cargo check --features small-vec --features thin-segments --verbose;
       - name: Run tests
         run: |
           cargo test --verbose;
           cargo test --features small-vec --verbose;
+          cargo test --features thin-segments --verbose;
+          cargo test --features small-vec --features thin-segments --verbose;

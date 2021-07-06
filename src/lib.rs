@@ -18,6 +18,11 @@
 //!
 //! 1. You have a long-lived `Vec` whose size fluctuates between very large and very small throughout the life of the program.
 //! 2. You have a large append-only `Vec` and would benefit from stable references to the elements
+//!
+//! ## Features
+//!
+//! - `small-vec` - Uses [`SmallVec`](https://github.com/servo/rust-smallvec) instead of `Vec` to store the list of segments, allowing the first few segment headers to live on the stack. Can speed up access for small `SegVec` values.
+//! - `thin-segments` - Uses [`ThinVec`](https://github.com/Gankra/thin-vec) instead of `Vec` to store the data for each segment, meaning that each segment header takes up the space of a single `usize`, rathern than 3 when using `Vec`.
 
 use std::{
     cmp,

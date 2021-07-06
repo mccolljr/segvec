@@ -413,3 +413,27 @@ fn test_segvec_stress_growth_factor_too_large() {
     assert_eq!(sv.len(), 1);
     assert_eq!(sv.capacity(), usize::MAX);
 }
+
+#[test]
+#[cfg(feature = "small-vec")]
+fn test_segvec_small_vec_feature() {
+    let _: inner::Segments<()> = smallvec::SmallVec::new();
+}
+
+#[test]
+#[cfg(not(feature = "small-vec"))]
+fn test_segvec_not_small_vec_feature() {
+    let _: inner::Segments<()> = Vec::new();
+}
+
+#[test]
+#[cfg(feature = "thin-segments")]
+fn test_segvec_thin_segments_feature() {
+    let _: inner::Segment<()> = thin_vec::ThinVec::new();
+}
+
+#[test]
+#[cfg(not(feature = "thin-segments"))]
+fn test_segvec_not_thin_segments_feature() {
+    let _: inner::Segment<()> = Vec::new();
+}

@@ -21,10 +21,10 @@ jobs:
           override: true
           components: rustfmt, clippy
       - name: Run cargo check (default features)
-        run: <<
+        run: |
           cargo check --verbose;
           cargo check --features small-vec;
       - name: Run tests
-        run: <<
+        run: |
           cargo test --verbose;
           cargo test --features small-vec --verbose;

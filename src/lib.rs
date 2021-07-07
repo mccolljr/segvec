@@ -282,6 +282,7 @@ impl<T> SegVec<T> {
     /// Truncates the [`SegVec`][crate::SegVec] to the given length.
     /// If the given length is larger than the current length, this is a no-op.
     /// Otherwise, the capacity is reduced and any excess elements are dropped.
+    ///
     /// ```
     /// # use segvec::SegVec;
     /// let mut v: SegVec<i32> = SegVec::new();
@@ -310,6 +311,62 @@ impl<T> SegVec<T> {
                 n => 2usize.pow((n - 1) as u32),
             };
             self.len = len;
+        }
+    }
+
+    /// Resizes the [`SegVec`][crate::SegVec] so that the length is equal to `new_len`.
+    ///
+    /// If `new_len` is greater than `len`, the `SegVec` is extended by the difference, with each additional slot filled with the result of calling the closure `f`.
+    /// The return values from `f` will end up in the `SegVec` in the order they have been generated.
+    /// If `new_len` is less than `len`, the `SegVec` is simply truncated.
+    /// If `new_len` is equal to `len`, this is a no-op.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut counter = 0i32;
+    /// v.resize_with(4, || { counter += 1; counter });
+    /// assert_eq!(counter, 4);
+    /// assert_eq!(v.len(), 4);
+    /// assert_eq!(v.pop().unwrap(), 4);
+    /// ```
+    pub fn resize_with<F>(&mut self, new_len: usize, f: F)
+    where
+        F: FnMut() -> T,
+    {
+        let cur_len = self.len();
+        if new_len > cur_len {
+            let to_add = new_len - cur_len;
+            self.extend(std::iter::repeat_with(f).take(to_add));
+        } else if new_len < cur_len {
+            self.truncate(new_len);
+        }
+    }
+
+    /// Resizes the [`SegVec`][crate::SegVec] so that the length is equal to `new_len`.
+    ///
+    /// If `new_len` is greater than `len`, the `SegVec` is extended by the difference, with each additional slot filled with the result of calling the `clone` on `val`.
+    /// The cloned values will end up in the `SegVec` in the order they have been generated.
+    /// If `new_len` is less than `len`, the `SegVec` is simply truncated.
+    /// If `new_len` is equal to `len`, this is a no-op.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let mut v: SegVec<i32> = SegVec::new();
+    /// v.resize(4, 100);
+    /// assert_eq!(v.len(), 4);
+    /// assert_eq!(v.pop().unwrap(), 100);
+    /// ```
+    pub fn resize(&mut self, new_len: usize, val: T)
+    where
+        T: Clone,
+    {
+        let cur_len = self.len();
+        if new_len > cur_len {
+            let to_add = new_len - cur_len;
+            self.extend(std::iter::repeat(val).take(to_add));
+        } else if new_len < cur_len {
+            self.truncate(new_len);
         }
     }
 
@@ -767,19 +824,19 @@ where
     }
 }
 
+impl<T> Eq for SegVec<T> where T: Eq {}
+
 impl<T> Extend<T> for SegVec<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let iter = iter.into_iter();
         let (min_size, max_size) = iter.size_hint();
-        let additional = max_size.unwrap_or(min_size);
+        let additional = std::cmp::max(max_size.unwrap_or(0), min_size);
         self.reserve(additional);
         for i in iter {
             self.push(i);
         }
     }
 }
-
-impl<T> Eq for SegVec<T> where T: Eq {}
 
 impl<T> FromIterator<T> for SegVec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {

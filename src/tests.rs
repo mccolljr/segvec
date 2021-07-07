@@ -190,27 +190,26 @@ fn test_segvec_insert_remove() {
     assert_eq!(v.capacity(), 2);
     v.insert(0, 3);
     v.insert(0, 4);
-    v.insert(0, 5);
+    v.insert(4, 5);
     v.insert(0, 6);
     v.insert(0, 7);
-    v.insert(4, 8);
+    v.insert(7, 8);
     assert_eq!(v.len(), 8);
     assert_eq!(v.capacity(), 8);
     assert_eq!(
         v.iter().copied().collect::<Vec<_>>(),
-        vec![7, 6, 5, 4, 8, 3, 2, 1]
+        vec![7, 6, 4, 3, 2, 1, 5, 8]
     );
-
-    assert_eq!(v.remove(7), 1);
-    assert_eq!(v.remove(4), 8);
-    assert_eq!(v.remove(4), 3);
+    assert_eq!(v.remove(7), 8);
     assert_eq!(v.remove(4), 2);
+    assert_eq!(v.remove(4), 1);
+    assert_eq!(v.remove(4), 5);
     assert_eq!(v.len(), 4);
     assert_eq!(v.capacity(), 8);
-    assert_eq!(v.iter().copied().collect::<Vec<_>>(), vec![7, 6, 5, 4]);
+    assert_eq!(v.iter().copied().collect::<Vec<_>>(), vec![7, 6, 4, 3]);
     assert_eq!(v.remove(1), 6);
-    assert_eq!(v.remove(1), 5);
     assert_eq!(v.remove(1), 4);
+    assert_eq!(v.remove(1), 3);
     assert_eq!(v.remove(0), 7);
     assert_eq!(v.len(), 0);
     assert_eq!(v.capacity(), 8);
@@ -402,6 +401,54 @@ fn test_segvec_extend() {
     assert_eq!(v.len(), 5);
     assert_eq!(v.capacity(), 8);
     assert_eq!(v.into_iter().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn test_segvec_resize() {
+    let mut v = SegVec::new();
+    v.resize(8, 12);
+    assert_eq!(v.len(), 8);
+    assert_eq!(v.capacity(), 8);
+    assert_eq!(
+        v.iter().cloned().collect::<Vec<_>>(),
+        vec![12, 12, 12, 12, 12, 12, 12, 12]
+    );
+    v.resize(4, 13);
+    assert_eq!(v.len(), 4);
+    assert_eq!(v.capacity(), 4);
+    assert_eq!(v.iter().cloned().collect::<Vec<_>>(), vec![12, 12, 12, 12]);
+    v.resize(8, 14);
+    assert_eq!(v.len(), 8);
+    assert_eq!(v.capacity(), 8);
+    assert_eq!(
+        v.iter().cloned().collect::<Vec<_>>(),
+        vec![12, 12, 12, 12, 14, 14, 14, 14]
+    );
+}
+
+#[test]
+fn test_segvec_resize_with() {
+    let counter = Cell::new(0i32);
+    let mut get_value = || {
+        counter.set(counter.get() + 1);
+        counter.get()
+    };
+    let mut v = SegVec::new();
+    v.resize_with(8, &mut get_value);
+    assert_eq!(v.len(), 8);
+    assert_eq!(v.capacity(), 8);
+    assert_eq!(counter.get(), 8);
+    assert_eq!(v[7], 8);
+    v.resize_with(4, &mut get_value);
+    assert_eq!(v.len(), 4);
+    assert_eq!(v.capacity(), 4);
+    assert_eq!(counter.get(), 8);
+    assert_eq!(v[3], 4);
+    v.resize_with(8, &mut get_value);
+    assert_eq!(v.len(), 8);
+    assert_eq!(v.capacity(), 8);
+    assert_eq!(counter.get(), 12);
+    assert_eq!(v[7], 12);
 }
 
 #[test]

@@ -11,6 +11,19 @@ impl<'a, T: Copy> Drop for DropCount<'a, T> {
 }
 
 #[test]
+fn test_checked_log2_floor() {
+    assert_eq!(checked_log2_floor(0), None);
+    assert_eq!(checked_log2_floor(1), Some(0));
+    assert_eq!(checked_log2_floor(2), Some(1));
+    assert_eq!(checked_log2_floor(3), Some(1));
+    assert_eq!(checked_log2_floor(4), Some(2));
+    assert_eq!(checked_log2_floor(5), Some(2));
+    assert_eq!(checked_log2_floor(6), Some(2));
+    assert_eq!(checked_log2_floor(7), Some(2));
+    assert_eq!(checked_log2_floor(8), Some(3));
+}
+
+#[test]
 fn test_segvec_new() {
     let v = SegVec::<()>::new();
     assert_eq!(v.len(), 0);

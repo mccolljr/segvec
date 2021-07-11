@@ -754,7 +754,7 @@ impl<T> SegVec<T> {
         let normal = linear_index
             .checked_div(self.factor.get())
             .expect("non-zero growth factor");
-        let (segment, pow) = match checked_log2_ceil(normal) {
+        let (segment, pow) = match checked_log2_floor(normal) {
             None => (0usize, 0u32),
             Some(s) => (s as usize + 1, s),
         };
@@ -1146,7 +1146,9 @@ impl<'a, T: 'a> Iterator for SliceMutIter<'a, T> {
 impl<'a, T: 'a> FusedIterator for SliceMutIter<'a, T> {}
 impl<'a, T: 'a> ExactSizeIterator for SliceMutIter<'a, T> {}
 
-fn checked_log2_ceil(v: usize) -> Option<u32> {
+/// Returns the highest power of 2 that is less than or equal to `v` when `v` is non-zero.
+/// If `v` is zero, `None` is returned.
+fn checked_log2_floor(v: usize) -> Option<u32> {
     if v > 0 {
         Some((usize::BITS - 1) - v.leading_zeros())
     } else {

@@ -490,33 +490,63 @@ impl<T> SegVec<T> {
             return self.pop().unwrap();
         }
         let (mut seg_idx, seg_offset) = self.segment_and_offset(index);
+        // SAFETY:
+        // At this point, it is known that index points to a valid, non-zero-sized T in
+        // the structure, and so it is safe to read a value of type T from this location
         let removed = unsafe { std::ptr::read(&self.segments[seg_idx][seg_offset]) };
-        let seg_len = self.segments[seg_idx].len();
-        let seg_cap = self.segments[seg_idx].capacity();
-        let dst_ptr = &mut self.segments[seg_idx][seg_offset] as *mut T;
-        let src_ptr = unsafe { dst_ptr.add(1) };
-        unsafe { std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset - 1) };
-        unsafe { self.segments[seg_idx].set_len(seg_len - 1) };
-        if seg_len == seg_cap {
-            loop {
-                seg_idx += 1;
-                if seg_idx < self.segments.len() {
-                    let seg_len = self.segments[seg_idx].len();
-                    if seg_len > 0 {
-                        let displaced = unsafe { std::ptr::read(&self.segments[seg_idx][0]) };
-                        self.segments[seg_idx - 1].push(displaced);
-                        let dst_ptr = self.segments[seg_idx].as_mut_ptr();
-                        let src_ptr = unsafe { dst_ptr.add(1) };
-                        unsafe { std::ptr::copy(src_ptr, dst_ptr, seg_len - 1) };
-                        unsafe { self.segments[seg_idx].set_len(seg_len - 1) };
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
+        let mut orig_len = self.segments[seg_idx].len();
+        let mut orig_cap = self.segments[seg_idx].capacity();
+        // SAFETY:
+        // 1. index is known to be strictly less than self.len
+        // 2. from #1, seg_offset is known to be strictly less than orig_len
+        // 3. from #2, seg_offset + 1 is known to be less than or equal to orig_len,
+        //    and orig_len - 1 is known to be greater than or equal to seg_offset
+        // 4. from #1-3, the pseudo-operation copy(segment[seg_offset+1..orig_len], segment[seg_offset..orig_len-1])
+        //    is known to be valid
+        // 5. all elements from 0 to orig_len are initialized, by definition of orig_len
+        // 6. from #2 and #5, we know it is safe to set the length of the segment to orig_len-1
+        unsafe {
+            // copy segment[seg_offset+1..orig_len] to segment[seg_offset..orig_len-1], then reduce the length of the segment by 1:
+            //  before copy: [_, X, a, b, c] (X is the value read into `removed`)
+            //   after copy: [_, a, b, c, c]
+            // after resize: [_, a, b, c]    (the second c is not dropped, per the implementation of `set_len`)
+            let dst_ptr = &mut self.segments[seg_idx][seg_offset] as *mut T;
+            let src_ptr = dst_ptr.add(1);
+            std::ptr::copy(src_ptr, dst_ptr, orig_len - seg_offset - 1);
+            self.segments[seg_idx].set_len(orig_len - 1);
+        }
+        // if the initial segment was full, it may be necessary to shift elements back from subsequent segments to keep continuity
+        while orig_len == orig_cap {
+            // advance to the next segment index (which may be out of bounds)
+            seg_idx += 1;
+            if seg_idx >= self.segments.len() {
+                break;
+            }
+            // the segment at seg_idx is now known to be in-bounds
+            orig_len = self.segments[seg_idx].len();
+            orig_cap = self.segments[seg_idx].capacity();
+            if orig_len > 0 {
+                // SAFETY:
+                // orig_len is known to be non-zero now, so reading from the 0th index in the segment at seg_idx is safe.
+                let displaced = unsafe { std::ptr::read(&self.segments[seg_idx][0]) };
+                // seg_idx-1 is known to exist, and to have exactly one empty slot to push into
+                self.segments[seg_idx - 1].push(displaced);
+                // SAFETY:
+                // 1. orig_len is known to be non-zero now, so the head of the segment is known to be a valid pointer to a T
+                // 2. from #1, 1 is known to be less than or equal to orig_len,
+                //    and orig_len - 1 is known to be greater than or equal to 0
+                // 3. from #1+2, the pseudo-operation copy(segment[1..orig_len], segment[0..orig_len-1]) is known to be valid
+                // 4. all elements from 0 to orig_len are initialized, by definition of orig_len
+                // 6. from #1 and #4, we know it is safe to set the length of the segment to orig_len-1
+                unsafe {
+                    let dst_ptr = self.segments[seg_idx].as_mut_ptr();
+                    let src_ptr = dst_ptr.add(1);
+                    std::ptr::copy(src_ptr, dst_ptr, orig_len - 1);
+                    self.segments[seg_idx].set_len(orig_len - 1);
                 }
             }
         }
+        // total length has decreased by 1, reflect this
         self.len -= 1;
         return removed;
     }
@@ -709,9 +739,14 @@ impl<T> SegVec<T> {
 
     fn swap(&mut self, a: usize, b: usize) {
         if a != b {
-            let av = unsafe { &mut *(&mut self[a] as *mut T) };
-            let bv = unsafe { &mut *(&mut self[b] as *mut T) };
-            std::mem::swap(av, bv);
+            let a_ptr = &mut self[a] as *mut T;
+            let b_ptr = &mut self[b] as *mut T;
+            // SAFETY:
+            // 1. a != b, so a_ptr and b_ptr cannot alias one another
+            // 2. If either a or b are invalid as indexes into the structure, a panic
+            //    will occur before we get here. Thus, a_ptr and b_ptr are both derived
+            //    from valid references to some element T in the structure.
+            unsafe { std::ptr::swap(a_ptr, b_ptr) };
         }
     }
 
@@ -1066,8 +1101,14 @@ impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.slice.len {
+            let index = self.index;
             self.index += 1;
-            Some(unsafe { &*(self.slice.index(self.index - 1) as *const T) })
+            // SAFETY:
+            // 1. index corresponds to a valid value in the slice
+            // 2. the value at index must live for at least the lifetime 'a
+            // 3. from #1+2, it is known that a taking an &'a to the value in the
+            //    slice is safe
+            Some(unsafe { &*(self.slice.index(index) as *const T) })
         } else {
             None
         }
@@ -1139,8 +1180,14 @@ impl<'a, T: 'a> Iterator for SliceMutIter<'a, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.slice.len {
+            let index = self.index;
             self.index += 1;
-            Some(unsafe { &mut *(self.slice.index_mut(self.index - 1) as *mut T) })
+            // SAFETY:
+            // 1. index corresponds to a valid value in the slice
+            // 2. the value at index must live for at least the lifetime 'a
+            // 3. from #1+2, it is known that a taking an &'a mut to the value in the
+            //    slice is safe
+            Some(unsafe { &mut *(self.slice.index_mut(index) as *mut T) })
         } else {
             None
         }

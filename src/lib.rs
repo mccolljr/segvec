@@ -425,11 +425,17 @@ impl<T> SegVec<T> {
                 let seg_len = segment.len();
                 let seg_cap = segment.capacity();
                 if seg_len == 0 {
-                    debug_assert!(seg_offset == 0);
+                    debug_assert!(
+                        seg_offset == 0,
+                        "expected offset == 0 when inserting into an empty segment"
+                    );
                     segment.push(displaced);
                     None
                 } else if seg_len < seg_cap {
-                    debug_assert!(seg_offset <= seg_len);
+                    debug_assert!(
+                        seg_offset <= seg_len,
+                        "expected offset <= len when inserting into a partially full segment"
+                    );
                     let src_ptr = segment.as_mut_ptr().add(seg_offset);
                     let dst_ptr = src_ptr.add(1);
                     std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset);
@@ -437,7 +443,10 @@ impl<T> SegVec<T> {
                     segment.set_len(seg_len + 1);
                     None
                 } else {
-                    debug_assert!(seg_offset <= seg_len);
+                    debug_assert!(
+                        seg_offset < seg_len,
+                        "expected offset < len when inserting into a full segment"
+                    );
                     let new_displaced = std::ptr::read(&mut segment[seg_len - 1]);
                     let src_ptr = segment.as_mut_ptr().add(seg_offset);
                     let dst_ptr = src_ptr.add(1);
@@ -744,7 +753,7 @@ impl<T> SegVec<T> {
                     .and_then(|n| n.checked_mul(self.factor.get()))
                 {
                     Some(size) => size,
-                    None => unimplemented!("todo: capacity overflow"),
+                    None => capacity_overflow(),
                 }
             }
         }

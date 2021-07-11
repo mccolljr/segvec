@@ -1,2 +1,6 @@
+# build & packager files
 /target
 Cargo.lock
+
+# os-specific files
+.DS_Store

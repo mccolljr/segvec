@@ -417,6 +417,15 @@ fn test_segvec_extend() {
 }
 
 #[test]
+fn test_segvec_extend_ref() {
+    let mut v = SegVec::<u8>::new();
+    v.extend("Hello!".as_bytes());
+    assert_eq!(v.len(), 6);
+    assert_eq!(v.capacity(), 8);
+    assert_eq!(v.into_iter().collect::<Vec<_>>(), vec![0x48u8, 0x65, 0x6c, 0x6c, 0x6f, 0x21]);
+}
+
+#[test]
 fn test_segvec_resize() {
     let mut v = SegVec::new();
     v.resize(8, 12);

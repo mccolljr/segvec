@@ -157,6 +157,19 @@ impl<T> SegVec<T> {
         self.len
     }
 
+    /// Returns `true` if the [`SegVec`][crate::SegVec] contains no elements.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let mut v: SegVec<i32> = SegVec::with_capacity(10);
+    /// assert!(v.is_empty());
+    /// v.push(1);
+    /// assert!(!v.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// The capacity of the [`SegVec`][crate::SegVec]
     ///
     /// ```

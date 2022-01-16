@@ -882,6 +882,12 @@ impl<T> Extend<T> for SegVec<T> {
     }
 }
 
+impl<'a, T: Copy + 'a> Extend<&'a T> for SegVec<T> {
+    fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
+        <Self as Extend<T>>::extend(self, iter.into_iter().copied())
+    }
+}
+
 impl<T> FromIterator<T> for SegVec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut v = SegVec::new();

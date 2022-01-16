@@ -27,6 +27,7 @@
 use std::{
     cmp,
     convert::TryFrom,
+    default::Default,
     fmt::Debug,
     hash::Hash,
     iter::{FromIterator, FusedIterator},
@@ -809,6 +810,12 @@ impl<T> SegVec<T> {
             }
             None => unreachable!(),
         }
+    }
+}
+
+impl<T> Default for SegVec<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

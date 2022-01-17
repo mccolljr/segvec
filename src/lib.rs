@@ -27,6 +27,7 @@
 use std::{
     cmp,
     convert::TryFrom,
+    default::Default,
     fmt::Debug,
     hash::Hash,
     iter::{FromIterator, FusedIterator},
@@ -154,6 +155,19 @@ impl<T> SegVec<T> {
     /// ```
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// Returns `true` if the [`SegVec`][crate::SegVec] contains no elements.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let mut v: SegVec<i32> = SegVec::with_capacity(10);
+    /// assert!(v.is_empty());
+    /// v.push(1);
+    /// assert!(!v.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// The capacity of the [`SegVec`][crate::SegVec]
@@ -809,6 +823,12 @@ impl<T> SegVec<T> {
             }
             None => unreachable!(),
         }
+    }
+}
+
+impl<T> Default for SegVec<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

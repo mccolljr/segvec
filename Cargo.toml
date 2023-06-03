@@ -13,7 +13,7 @@ rand = "0.8.4"
 criterion = { version = "0.3.4", features = ["html_reports"] }
 
 [dependencies]
-smallvec = { version = "1.6.1", features = ["const_generics"], optional = true }
+smallvec = { version = "1.10.0", features = ["const_generics", "union"], optional = true }
 thin-vec = { version = "0.2.3", optional = true }
 
 [features]

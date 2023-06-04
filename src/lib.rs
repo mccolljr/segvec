@@ -86,7 +86,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     /// v.reserve(1);
     /// assert_eq!(v.capacity(), 1);
     /// ```
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         assert!(FACTOR > 0, "FACTOR must be greater than 0");
         SegVec {
             len: 0,

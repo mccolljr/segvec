@@ -12,7 +12,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     })
     .bench_function("push 10k values with large growth factor", |b| {
         b.iter_with_large_drop(|| {
-            let mut v: SegVec<i32> = SegVec::with_capacity_and_factor(0, 2500);
+            let mut v: SegVec<i32, 2500> = SegVec::with_capacity(0);
             for i in 0..10000 {
                 v.push(black_box(i));
             }

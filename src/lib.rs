@@ -121,6 +121,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     /// v.push(2);
     /// assert_eq!(v.len(), 2);
     /// ```
+    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
@@ -134,6 +135,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     /// v.push(1);
     /// assert!(!v.is_empty());
     /// ```
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -145,6 +147,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     /// let mut v: SegVec<i32, 1> = SegVec::with_capacity(3);
     /// assert_eq!(v.capacity(), 4);
     /// ```
+    #[inline]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
@@ -287,7 +290,13 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
             }
             self.capacity = match self.segments.len() {
                 0 => 0,
+                n => match 2usize
+                    .checked_pow((n - 1) as u32)
+                    .and_then(|c| c.checked_mul(FACTOR))
                 {
+                    Some(c) => c,
+                    None => capacity_overflow(),
+                },
             };
             self.len = len;
         }

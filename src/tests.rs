@@ -24,18 +24,24 @@ fn test_checked_log2_floor() {
 }
 
 #[test]
-fn test_segvec_new() {
+fn test_new() {
     let v = SegVec::<()>::new();
     assert_eq!(v.len(), 0);
     assert_eq!(v.capacity(), 0);
 
-    let v = SegVec::<()>::with_capacity(0);
+    let v = SegVec::<(), 1>::with_capacity(0);
     assert_eq!(v.len(), 0);
     assert_eq!(v.capacity(), 0);
 }
 
 #[test]
-fn test_segvec_with_capacity() {
+#[should_panic(expected = "FACTOR must be greater than 0")]
+fn test_new_with_bad_factor() {
+    SegVec::<(), 0>::new();
+}
+
+#[test]
+fn test_with_capacity() {
     const TEST_MAX: usize = if cfg!(miri) {
         2usize.pow(5)
     } else {
@@ -43,20 +49,20 @@ fn test_segvec_with_capacity() {
     };
 
     for hint in 1..TEST_MAX {
-        let v = SegVec::<()>::with_capacity(hint);
+        let v = SegVec::<(), 1>::with_capacity(hint);
         assert_eq!(v.len(), 0);
         assert_eq!(v.capacity(), hint.next_power_of_two());
     }
 }
 
 #[test]
-fn test_segvec_push_pop() {
+fn test_push_pop() {
     const TEST_MAX: usize = if cfg!(miri) {
         2usize.pow(5)
     } else {
         2usize.pow(16)
     };
-    let mut v = SegVec::with_capacity(0);
+    let mut v = SegVec::<usize, 1>::with_capacity(0);
     for i in 0..TEST_MAX {
         v.push(i);
         assert_eq!(v.segments.len(), (v.capacity as f64).log2() as usize + 1);
@@ -69,10 +75,10 @@ fn test_segvec_push_pop() {
 }
 
 #[test]
-fn test_segvec_truncate() {
+fn test_truncate() {
     let dc = Cell::new(0usize);
     const TEST_MAX: usize = 2usize.pow(7);
-    let mut v = SegVec::with_capacity(TEST_MAX);
+    let mut v = SegVec::<DropCount<'_, usize>, 1>::with_capacity(TEST_MAX);
     for i in 0..TEST_MAX {
         v.push(DropCount(&dc, i));
     }
@@ -107,8 +113,23 @@ fn test_segvec_truncate() {
 }
 
 #[test]
-fn test_segvec_iter() {
-    let mut v = SegVec::new();
+fn test_truncate_custom_factor() {
+    let mut s = SegVec::<i32, 4>::new();
+    for i in 0..10 {
+        s.push(i);
+    }
+
+    assert_eq!(s.len(), 10);
+    assert_eq!(s.capacity(), 16);
+
+    s.truncate(8);
+    assert_eq!(s.len(), 8);
+    assert_eq!(s.capacity(), 8);
+}
+
+#[test]
+fn test_iter() {
+    let mut v = SegVec::<i32, 1>::new();
     v.push(1);
     v.push(2);
     v.push(3);
@@ -147,9 +168,9 @@ fn test_segvec_iter() {
 }
 
 #[test]
-fn test_segvec_into_iter() {
+fn test_into_iter() {
     let dc = Cell::new(0usize);
-    let mut v = SegVec::new();
+    let mut v = SegVec::<DropCount<'_, usize>, 1>::new();
     v.push(DropCount(&dc, 1));
     v.push(DropCount(&dc, 2));
     v.push(DropCount(&dc, 3));
@@ -179,8 +200,8 @@ fn test_segvec_into_iter() {
 }
 
 #[test]
-fn test_segvec_from_iter() {
-    let v = SegVec::from_iter([1, 2, 3, 4, 5, 6]);
+fn test_from_iter() {
+    let v = SegVec::<i32, 1>::from_iter([1, 2, 3, 4, 5, 6]);
     assert_eq!(v.len(), 6);
     assert_eq!(v.capacity(), 8);
     assert_eq!(v[0], 1);
@@ -193,8 +214,8 @@ fn test_segvec_from_iter() {
 }
 
 #[test]
-fn test_segvec_insert_remove() {
-    let mut v = SegVec::with_capacity(0);
+fn test_insert_remove() {
+    let mut v = SegVec::<_, 1>::with_capacity(0);
     v.insert(0, 1);
     assert_eq!(v.len(), 1);
     assert_eq!(v.capacity(), 1);
@@ -228,7 +249,7 @@ fn test_segvec_insert_remove() {
     assert_eq!(v.capacity(), 8);
 
     let mut rng = rand::thread_rng();
-    let mut v = SegVec::with_capacity_and_factor(1024, 512);
+    let mut v = SegVec::<i32, 512>::with_capacity(1024);
     for i in 0..1024 {
         v.insert(rng.gen_range(0..=i as usize), rng.gen_range(0..100));
     }
@@ -242,8 +263,8 @@ fn test_segvec_insert_remove() {
 }
 
 #[test]
-fn test_segvec_drain() {
-    fn make_segvec_8() -> (Box<Cell<usize>>, SegVec<DropCount<'static, i32>>) {
+fn test_drain() {
+    fn make_segvec_8() -> (Box<Cell<usize>>, SegVec<DropCount<'static, i32>, 1>) {
         let dc = Box::into_raw(Box::new(Cell::new(0)));
         let mut v = SegVec::with_capacity(0);
         v.push(DropCount(unsafe { &*dc }, 1));
@@ -324,8 +345,8 @@ fn test_segvec_drain() {
 }
 
 #[test]
-fn test_segvec_slice() {
-    let mut v = SegVec::with_capacity(8);
+fn test_slice() {
+    let mut v = SegVec::<_, 1>::with_capacity(8);
     v.push(1);
     v.push(2);
     v.push(3);
@@ -348,12 +369,12 @@ fn test_segvec_slice() {
         s4.iter().copied().collect::<Vec<_>>(),
         vec![1, 2, 3, 4, 5, 6, 7, 8]
     );
-    assert_eq!(s5.iter().copied().collect::<Vec<_>>(), vec![]);
+    assert_eq!(s5.iter().copied().collect::<Vec<i32>>(), vec![]);
 }
 
 #[test]
-fn test_segvec_slice_mut() {
-    let mut v = SegVec::with_capacity(8);
+fn test_slice_mut() {
+    let mut v = SegVec::<_, 1>::with_capacity(8);
     v.push(1);
     v.push(2);
     v.push(3);
@@ -374,10 +395,10 @@ fn test_segvec_slice_mut() {
 }
 
 #[test]
-fn test_segvec_sort() {
+fn test_sort() {
     let mut rng = rand::thread_rng();
     for i in 0..1000usize {
-        let mut v = SegVec::with_capacity(i);
+        let mut v = SegVec::<_, 1>::with_capacity(i);
         while v.len() < v.capacity() {
             v.push(rng.gen_range(0i32..100));
         }
@@ -393,11 +414,11 @@ fn test_segvec_sort() {
 }
 
 #[test]
-fn test_segvec_hash() {
-    let mut v1 = SegVec::with_capacity(8);
+fn test_hash() {
+    let mut v1 = SegVec::<_, 1>::with_capacity(8);
     v1.push(1);
     v1.push(2);
-    let mut v2 = SegVec::with_capacity(4);
+    let mut v2 = SegVec::<_, 1>::with_capacity(4);
     v2.push(1);
     v2.push(2);
     let mut h1 = DefaultHasher::new();
@@ -408,8 +429,8 @@ fn test_segvec_hash() {
 }
 
 #[test]
-fn test_segvec_extend() {
-    let mut v = SegVec::new();
+fn test_extend() {
+    let mut v = SegVec::<_, 1>::new();
     v.extend([1, 2, 3, 4, 5]);
     assert_eq!(v.len(), 5);
     assert_eq!(v.capacity(), 8);
@@ -417,17 +438,20 @@ fn test_segvec_extend() {
 }
 
 #[test]
-fn test_segvec_extend_ref() {
-    let mut v = SegVec::<u8>::new();
+fn test_extend_ref() {
+    let mut v = SegVec::<u8, 1>::new();
     v.extend("Hello!".as_bytes());
     assert_eq!(v.len(), 6);
     assert_eq!(v.capacity(), 8);
-    assert_eq!(v.into_iter().collect::<Vec<_>>(), vec![0x48u8, 0x65, 0x6c, 0x6c, 0x6f, 0x21]);
+    assert_eq!(
+        v.into_iter().collect::<Vec<_>>(),
+        vec![0x48u8, 0x65, 0x6c, 0x6c, 0x6f, 0x21]
+    );
 }
 
 #[test]
-fn test_segvec_resize() {
-    let mut v = SegVec::new();
+fn test_resize() {
+    let mut v = SegVec::<_, 1>::new();
     v.resize(8, 12);
     assert_eq!(v.len(), 8);
     assert_eq!(v.capacity(), 8);
@@ -449,13 +473,13 @@ fn test_segvec_resize() {
 }
 
 #[test]
-fn test_segvec_resize_with() {
+fn test_resize_with() {
     let counter = Cell::new(0i32);
     let mut get_value = || {
         counter.set(counter.get() + 1);
         counter.get()
     };
-    let mut v = SegVec::new();
+    let mut v = SegVec::<_, 1>::new();
     v.resize_with(8, &mut get_value);
     assert_eq!(v.len(), 8);
     assert_eq!(v.capacity(), 8);
@@ -475,8 +499,8 @@ fn test_segvec_resize_with() {
 
 #[test]
 #[should_panic(expected = "capacity overflow")]
-fn test_segvec_stress_growth_factor_too_large() {
-    let mut sv = SegVec::<u16>::with_factor(usize::MAX);
+fn test_stress_growth_factor_too_large() {
+    let mut sv = SegVec::<u16, { usize::MAX }>::new();
     sv.reserve(1);
     sv.push(1);
     assert_eq!(sv.len(), 1);
@@ -485,24 +509,24 @@ fn test_segvec_stress_growth_factor_too_large() {
 
 #[test]
 #[cfg(feature = "small-vec")]
-fn test_segvec_small_vec_feature() {
-    let _: inner::Segments<()> = smallvec::SmallVec::new();
+fn test_small_vec_feature() {
+    let _: detail::Segments<()> = smallvec::SmallVec::new();
 }
 
 #[test]
 #[cfg(not(feature = "small-vec"))]
-fn test_segvec_not_small_vec_feature() {
-    let _: inner::Segments<()> = Vec::new();
+fn test_not_small_vec_feature() {
+    let _: detail::Segments<()> = Vec::new();
 }
 
 #[test]
 #[cfg(feature = "thin-segments")]
-fn test_segvec_thin_segments_feature() {
-    let _: inner::Segment<()> = thin_vec::ThinVec::new();
+fn test_thin_segments_feature() {
+    let _: detail::Segment<()> = thin_vec::ThinVec::new();
 }
 
 #[test]
 #[cfg(not(feature = "thin-segments"))]
-fn test_segvec_not_thin_segments_feature() {
-    let _: inner::Segment<()> = Vec::new();
+fn test_not_thin_segments_feature() {
+    let _: detail::Segment<()> = Vec::new();
 }

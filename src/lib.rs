@@ -24,22 +24,10 @@
 //! - `small-vec` - Uses [`SmallVec`](https://github.com/servo/rust-smallvec) instead of `Vec` to store the list of segments, allowing the first few segment headers to live on the stack. Can speed up access for small `SegVec` values.
 //! - `thin-segments` - Uses [`ThinVec`](https://github.com/Gankra/thin-vec) instead of `Vec` to store the data for each segment, meaning that each segment header takes up the space of a single `usize`, rathern than 3 when using `Vec`.
 
-use std::{
-    cmp,
-    convert::TryFrom,
-    default::Default,
-    fmt::Debug,
-    hash::Hash,
-    iter::{FromIterator, FusedIterator},
-    mem,
-    num::NonZeroUsize,
-    ops::{Bound, Index, IndexMut, RangeBounds},
-};
-
 #[cfg(test)]
 mod tests;
 
-mod inner {
+pub mod detail {
     #[cfg(feature = "thin-segments")]
     pub type Segment<T> = thin_vec::ThinVec<T>;
     #[cfg(not(feature = "thin-segments"))]
@@ -51,62 +39,59 @@ mod inner {
     pub type Segments<T> = Vec<Segment<T>>;
 }
 
+use std::cmp;
+use std::convert::TryFrom;
+use std::default::Default;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::iter::{FromIterator, FusedIterator};
+use std::mem;
+use std::ops::{Bound, Index, IndexMut, RangeBounds};
+
 /// A data structure similar to [`Vec`][std::vec::Vec], but that does not copy on re-size and can
 /// release memory when it is truncated.
 ///
-/// Capacity is allocated in "segments". Assuming the default growth factor of 1:
+/// Capacity is allocated in "segments".
+/// If we assume the default `FACTOR` of 1, this means:
 /// - A `SegVec` with a capacity of 0 does not allocate.
 /// - A `SegVec` with a capacity of 1 allocates a single segment of length 1.
 /// - A `SegVec` with a capacity of 2 allocates two segments of length 1.
-/// - A `SegVec` with a capacity of 3 or 4 elements allocates two segments of length one, and a segment of length 2.
+/// - A `SegVec` with a capacity of 3 or 4 elements allocates two segments of length 1,
+///   and a segment of length 2.
+///
+/// If we account for non-default values for `FACTOR`, this means:
+/// - A `SegVec` with a capacity of 0 does not allocate.
+/// - A `SegVec` with a capacity of 1 allocates a single segment of length 1 * FACTOR.
+/// - A `SegVec` with a capacity of 2 allocates two segments of length 1 * FACTOR.
+/// - A `SegVec` with a capacity of 3 or 4 elements allocates two segments of length 1 * FACTOR,
+///   and a segment of length 2 * FACTOR.
 ///
 /// Each subsequent segment is allocated with a capacity equal to the total capacity of the preceeding
 /// segments. In other words, each segment after the first segment doubles the capacity of the `SegVec`.
 /// If the growth factor is a power of two (such as the default growth factor of 1), the capacity of the
 /// `SegVec` will always be a power of two.
-///
-/// It is possible to specify a growth factor using [`SegVec::with_factor`][crate::SegVec::with_factor].
-/// By choosing an appropriate growth factor, allocation count and memory usage can be fine-tuned.
-pub struct SegVec<T> {
-    factor: NonZeroUsize,
+pub struct SegVec<T, const FACTOR: usize = 1> {
     len: usize,
     capacity: usize,
-    segments: inner::Segments<T>,
+    segments: detail::Segments<T>,
 }
 
-impl<T> SegVec<T> {
+impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0 using the default growth factor of 1.
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// assert_eq!(v.capacity(), 0);
     /// v.reserve(1);
     /// assert_eq!(v.capacity(), 1);
     /// ```
     pub fn new() -> Self {
-        Self::with_factor(1)
-    }
-
-    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0, and the given growth factor.
-    ///
-    /// ```
-    /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::with_factor(4);
-    /// assert_eq!(v.capacity(), 0);
-    /// v.reserve(1);
-    /// assert_eq!(v.capacity(), 4);
-    /// ```
-    ///
-    /// # Panics
-    /// - If `factor` is zero
-    pub fn with_factor(factor: usize) -> Self {
-        let factor = NonZeroUsize::new(factor).expect("non-zero factor");
+        assert!(FACTOR > 0, "FACTOR must be greater than 0");
         SegVec {
-            factor,
             len: 0,
             capacity: 0,
-            segments: inner::Segments::new(),
+            segments: detail::Segments::new(),
         }
     }
 
@@ -115,7 +100,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let v: SegVec<i32> = SegVec::with_capacity(5);
+    /// let v: SegVec<i32, 1> = SegVec::with_capacity(5);
     /// assert_eq!(v.capacity(), 8);
     /// ```
     ///
@@ -127,32 +112,16 @@ impl<T> SegVec<T> {
         v
     }
 
-    /// Create a new [`SegVec`][crate::SegVec] with a length of 0 and a capacity large enough to
-    /// hold the given number of elements, using the provided growth factor.
-    ///
-    /// ```
-    /// # use segvec::SegVec;
-    /// let v: SegVec<i32> = SegVec::with_capacity_and_factor(5, 4);
-    /// assert_eq!(v.capacity(), 8);
-    /// ```
-    ///
-    /// # Panics
-    /// - If the required capacity overflows `usize`
-    pub fn with_capacity_and_factor(capacity_hint: usize, factor: usize) -> Self {
-        let mut v = SegVec::with_factor(factor);
-        v.reserve(capacity_hint);
-        v
-    }
-
     /// The number of elements in the [`SegVec`][crate::SegVec]
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// assert_eq!(v.len(), 2);
     /// ```
+    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
@@ -161,11 +130,12 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::with_capacity(10);
+    /// let mut v: SegVec<i32, 1> = SegVec::with_capacity(10);
     /// assert!(v.is_empty());
     /// v.push(1);
     /// assert!(!v.is_empty());
     /// ```
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -174,9 +144,10 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::with_capacity(3);
+    /// let mut v: SegVec<i32, 1> = SegVec::with_capacity(3);
     /// assert_eq!(v.capacity(), 4);
     /// ```
+    #[inline]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
@@ -187,7 +158,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// assert_eq!(v.capacity(), 0);
     /// v.reserve(3);
     /// assert_eq!(v.capacity(), 4);
@@ -206,10 +177,7 @@ impl<T> SegVec<T> {
         let (segment, _) = self.segment_and_offset(min_cap - 1);
         for i in self.segments.len()..=segment {
             let seg_size = self.segment_capacity(i);
-            #[cfg(feature = "thin-segments")]
-            self.segments.push(inner::Segment::with_capacity(seg_size));
-            #[cfg(not(feature = "thin-segments"))]
-            self.segments.push(Vec::with_capacity(seg_size));
+            self.segments.push(detail::Segment::with_capacity(seg_size));
             self.capacity += seg_size;
         }
     }
@@ -219,7 +187,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// assert_eq!(v.get(0), None);
     /// v.push(1);
     /// assert_eq!(*v.get(0).unwrap(), 1);
@@ -238,7 +206,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// assert_eq!(v.get_mut(0), None);
     /// v.push(1);
     /// assert_eq!(*v.get_mut(0).unwrap(), 1);
@@ -256,7 +224,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// assert_eq!(v[0], 1);
     /// ```
@@ -275,7 +243,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// assert_eq!(v.pop().unwrap(), 1);
     /// ```
@@ -299,7 +267,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.push(3);
@@ -322,7 +290,13 @@ impl<T> SegVec<T> {
             }
             self.capacity = match self.segments.len() {
                 0 => 0,
-                n => 2usize.pow((n - 1) as u32),
+                n => match 2usize
+                    .checked_pow((n - 1) as u32)
+                    .and_then(|c| c.checked_mul(FACTOR))
+                {
+                    Some(c) => c,
+                    None => capacity_overflow(),
+                },
             };
             self.len = len;
         }
@@ -337,7 +311,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// let mut counter = 0i32;
     /// v.resize_with(4, || { counter += 1; counter });
     /// assert_eq!(counter, 4);
@@ -366,7 +340,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.resize(4, 100);
     /// assert_eq!(v.len(), 4);
     /// assert_eq!(v.pop().unwrap(), 100);
@@ -389,7 +363,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.push(3);
@@ -412,7 +386,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.insert(0, 100);
@@ -487,7 +461,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// assert_eq!(v.remove(1), 2);
@@ -570,7 +544,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.drain(..).for_each(|v| println!("{}", v));
@@ -580,7 +554,7 @@ impl<T> SegVec<T> {
     /// # Panics
     /// - If the end index is greater than `self.len()`
     /// - If the start index is greater than the end index.
-    pub fn drain<R>(&mut self, range: R) -> Drain<T>
+    pub fn drain<R>(&mut self, range: R) -> Drain<T, FACTOR>
     where
         R: RangeBounds<usize>,
     {
@@ -597,7 +571,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// let s = v.slice(1..);
@@ -624,7 +598,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// let mut s = v.slice_mut(..1);
@@ -651,7 +625,7 @@ impl<T> SegVec<T> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut v: SegVec<i32, 1> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.push(3);
@@ -682,77 +656,77 @@ impl<T> SegVec<T> {
         self.sort_unstable_by(Ord::cmp)
     }
 
+    fn _sort_partition<F>(&mut self, lo: usize, hi: usize, compare: &mut F) -> usize
+    where
+        F: FnMut(&T, &T) -> cmp::Ordering,
+    {
+        let pivot = lo;
+        let mut left = lo;
+        let mut right = hi + 1;
+        while left < right {
+            loop {
+                left += 1;
+                if left >= right || compare(&self[pivot], &self[left]).is_lt() {
+                    break;
+                }
+            }
+            loop {
+                right -= 1;
+                if right <= left || compare(&self[right], &self[pivot]).is_lt() {
+                    break;
+                }
+            }
+            if right > left {
+                self.swap(right, left);
+            }
+        }
+
+        let final_pivot_location = if compare(&self[right], &self[pivot]).is_lt() {
+            right
+        } else {
+            right - 1
+        };
+        self.swap(final_pivot_location, pivot);
+        final_pivot_location
+    }
+
+    fn _sort_quicksort<F>(&mut self, lo: usize, hi: usize, compare: &mut F)
+    where
+        F: FnMut(&T, &T) -> cmp::Ordering,
+    {
+        if hi > lo {
+            match hi - lo {
+                1 => {
+                    if compare(&self[hi], &self[lo]).is_lt() {
+                        self.swap(lo, hi);
+                    }
+                }
+                _ => {
+                    let mid = self._sort_partition(lo, hi, compare);
+                    if mid > lo {
+                        self._sort_quicksort(lo, mid - 1, compare);
+                    }
+                    if mid < hi {
+                        self._sort_quicksort(mid + 1, hi, compare);
+                    }
+                }
+            }
+        }
+    }
+
     /// Sort the [`SegVec`][crate::SegVec] in ascending order (unstable) using the given comparison function
     pub fn sort_unstable_by<F>(&mut self, mut compare: F)
     where
         F: FnMut(&T, &T) -> cmp::Ordering,
     {
-        fn partition<T, F>(v: &mut SegVec<T>, lo: usize, hi: usize, compare: &mut F) -> usize
-        where
-            F: FnMut(&T, &T) -> cmp::Ordering,
-        {
-            let pivot = lo;
-            let mut left = lo;
-            let mut right = hi + 1;
-            while left < right {
-                loop {
-                    left += 1;
-                    if left >= right || compare(&v[pivot], &v[left]).is_lt() {
-                        break;
-                    }
-                }
-                loop {
-                    right -= 1;
-                    if right <= left || compare(&v[right], &v[pivot]).is_lt() {
-                        break;
-                    }
-                }
-                if right > left {
-                    v.swap(right, left);
-                }
-            }
-
-            let final_pivot_location = if compare(&v[right], &v[pivot]).is_lt() {
-                right
-            } else {
-                right - 1
-            };
-            v.swap(final_pivot_location, pivot);
-            final_pivot_location
-        }
-
-        pub fn quicksort<T, F>(v: &mut SegVec<T>, lo: usize, hi: usize, compare: &mut F)
-        where
-            F: FnMut(&T, &T) -> cmp::Ordering,
-        {
-            if hi > lo {
-                match hi - lo {
-                    1 => {
-                        if compare(&v[hi], &v[lo]).is_lt() {
-                            v.swap(lo, hi);
-                        }
-                    }
-                    _ => {
-                        let mid = partition(v, lo, hi, compare);
-                        if mid > lo {
-                            quicksort(v, lo, mid - 1, compare);
-                        }
-                        if mid < hi {
-                            quicksort(v, mid + 1, hi, compare);
-                        }
-                    }
-                }
-            }
-        }
-
         match self.len() {
-            0..=1 => {}
-            len => quicksort(self, 0, len - 1, &mut compare),
+            ..=1 => {}
+            len => self._sort_quicksort(0, len - 1, &mut compare),
         }
     }
 
     fn swap(&mut self, a: usize, b: usize) {
-        if a != b {
+        if a != b && std::mem::size_of::<T>() > 0 {
             let a_ptr = &mut self[a] as *mut T;
             let b_ptr = &mut self[b] as *mut T;
             // SAFETY:
@@ -794,13 +768,10 @@ impl<T> SegVec<T> {
 
     fn segment_capacity(&self, segment_index: usize) -> usize {
         match segment_index {
-            0 => self.factor.get(),
+            0 => FACTOR,
             n => {
                 let pow = u32::try_from(n - 1).expect("fewer than 64 segments");
-                match 2usize
-                    .checked_pow(pow)
-                    .and_then(|n| n.checked_mul(self.factor.get()))
-                {
+                match 2usize.checked_pow(pow).and_then(|n| n.checked_mul(FACTOR)) {
                     Some(size) => size,
                     None => capacity_overflow(),
                 }
@@ -810,13 +781,13 @@ impl<T> SegVec<T> {
 
     fn segment_and_offset(&self, linear_index: usize) -> (usize, usize) {
         let normal = linear_index
-            .checked_div(self.factor.get())
+            .checked_div(FACTOR)
             .expect("non-zero growth factor");
         let (segment, pow) = match checked_log2_floor(normal) {
             None => (0usize, 0u32),
             Some(s) => (s as usize + 1, s),
         };
-        match 2usize.pow(pow).checked_mul(self.factor.get()) {
+        match 2usize.pow(pow).checked_mul(FACTOR) {
             Some(mod_base) => {
                 let offset = linear_index % mod_base;
                 (segment, offset)
@@ -826,24 +797,23 @@ impl<T> SegVec<T> {
     }
 }
 
-impl<T> Default for SegVec<T> {
+impl<T, const FACTOR: usize> Default for SegVec<T, FACTOR> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Clone> Clone for SegVec<T> {
+impl<T: Clone, const FACTOR: usize> Clone for SegVec<T, FACTOR> {
     fn clone(&self) -> Self {
         SegVec {
             len: self.len,
             capacity: self.capacity,
             segments: self.segments.clone(),
-            factor: self.factor,
         }
     }
 }
 
-impl<T> Index<usize> for SegVec<T> {
+impl<T, const FACTOR: usize> Index<usize> for SegVec<T, FACTOR> {
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -854,7 +824,7 @@ impl<T> Index<usize> for SegVec<T> {
     }
 }
 
-impl<T> IndexMut<usize> for SegVec<T> {
+impl<T, const FACTOR: usize> IndexMut<usize> for SegVec<T, FACTOR> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         let size = self.len;
         match self.get_mut(index) {
@@ -864,19 +834,19 @@ impl<T> IndexMut<usize> for SegVec<T> {
     }
 }
 
-impl<T: Debug> Debug for SegVec<T> {
+impl<T: Debug, const FACTOR: usize> Debug for SegVec<T, FACTOR> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(self.iter()).finish()
     }
 }
 
-impl<T: Hash> Hash for SegVec<T> {
+impl<T: Hash, const FACTOR: usize> Hash for SegVec<T, FACTOR> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.iter().for_each(|i| i.hash(state));
     }
 }
 
-impl<T> PartialEq for SegVec<T>
+impl<T, const FACTOR: usize> PartialEq for SegVec<T, FACTOR>
 where
     T: PartialEq,
 {
@@ -888,9 +858,9 @@ where
     }
 }
 
-impl<T> Eq for SegVec<T> where T: Eq {}
+impl<T, const FACTOR: usize> Eq for SegVec<T, FACTOR> where Self: PartialEq {}
 
-impl<T> Extend<T> for SegVec<T> {
+impl<T, const FACTOR: usize> Extend<T> for SegVec<T, FACTOR> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let iter = iter.into_iter();
         let (min_size, max_size) = iter.size_hint();
@@ -902,13 +872,13 @@ impl<T> Extend<T> for SegVec<T> {
     }
 }
 
-impl<'a, T: Copy + 'a> Extend<&'a T> for SegVec<T> {
+impl<'a, T: Copy + 'a, const FACTOR: usize> Extend<&'a T> for SegVec<T, FACTOR> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         <Self as Extend<T>>::extend(self, iter.into_iter().copied())
     }
 }
 
-impl<T> FromIterator<T> for SegVec<T> {
+impl<T, const FACTOR: usize> FromIterator<T> for SegVec<T, FACTOR> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut v = SegVec::new();
         v.extend(iter);
@@ -916,7 +886,7 @@ impl<T> FromIterator<T> for SegVec<T> {
     }
 }
 
-impl<T> IntoIterator for SegVec<T> {
+impl<T, const FACTOR: usize> IntoIterator for SegVec<T, FACTOR> {
     type IntoIter = IntoIter<T>;
     type Item = T;
 
@@ -931,7 +901,7 @@ impl<T> IntoIterator for SegVec<T> {
 /// Iterator over immutable references to items in a [`SegVec`][crate::SegVec].
 pub struct Iter<'a, T> {
     size: usize,
-    iter: std::iter::Flatten<std::slice::Iter<'a, inner::Segment<T>>>,
+    iter: std::iter::Flatten<std::slice::Iter<'a, detail::Segment<T>>>,
 }
 
 impl<'a, T: 'a> Iterator for Iter<'a, T> {
@@ -970,7 +940,7 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 /// Consuming iterator over items in a [`SegVec`][crate::SegVec].
 pub struct IntoIter<T> {
     size: usize,
-    iter: std::iter::Flatten<<inner::Segments<T> as std::iter::IntoIterator>::IntoIter>,
+    iter: std::iter::Flatten<<detail::Segments<T> as std::iter::IntoIterator>::IntoIter>,
 }
 
 impl<T> Iterator for IntoIter<T> {
@@ -1011,14 +981,14 @@ impl<T> ExactSizeIterator for IntoIter<T> {}
 /// If a `Drain` is forgotten (via [`std::mem::forget`]), it is unspecified how many elements are
 /// removed. The current implementation calls `SegVec::remove` on a single element on each call to
 /// `next`.
-pub struct Drain<'a, T> {
-    inner: &'a mut SegVec<T>,
+pub struct Drain<'a, T, const FACTOR: usize> {
+    inner: &'a mut SegVec<T, FACTOR>,
     index: usize,
     total: usize,
     drained: usize,
 }
 
-impl<'a, T> Iterator for Drain<'a, T> {
+impl<'a, T, const FACTOR: usize> Iterator for Drain<'a, T, FACTOR> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1037,7 +1007,7 @@ impl<'a, T> Iterator for Drain<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
+impl<'a, T, const FACTOR: usize> DoubleEndedIterator for Drain<'a, T, FACTOR> {
     fn next_back(&mut self) -> Option<Self::Item> {
         let left = self.total - self.drained;
         if left > 0 {
@@ -1050,10 +1020,10 @@ impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
     }
 }
 
-impl<'a, T> FusedIterator for Drain<'a, T> {}
-impl<'a, T> ExactSizeIterator for Drain<'a, T> {}
+impl<'a, T, const FACTOR: usize> FusedIterator for Drain<'a, T, FACTOR> {}
+impl<'a, T, const FACTOR: usize> ExactSizeIterator for Drain<'a, T, FACTOR> {}
 
-impl<'a, T> Drop for Drain<'a, T> {
+impl<'a, T, const FACTOR: usize> Drop for Drain<'a, T, FACTOR> {
     fn drop(&mut self) {
         self.for_each(drop);
     }
@@ -1061,7 +1031,7 @@ impl<'a, T> Drop for Drain<'a, T> {
 
 /// Provides an immutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct Slice<'a, T: 'a> {
-    inner: &'a SegVec<T>,
+    inner: &'a (dyn Index<usize, Output = T>),
     start: usize,
     len: usize,
 }
@@ -1151,7 +1121,7 @@ impl<'a, T: 'a> ExactSizeIterator for SliceIter<'a, T> {}
 
 /// Provides a mutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct SliceMut<'a, T: 'a> {
-    inner: &'a mut SegVec<T>,
+    inner: &'a mut dyn IndexMut<usize, Output = T>,
     start: usize,
     len: usize,
 }

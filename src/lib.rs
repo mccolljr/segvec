@@ -287,7 +287,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
             }
             self.capacity = match self.segments.len() {
                 0 => 0,
-                n => 2usize.pow((n - 1) as u32),
+                {
             };
             self.len = len;
         }

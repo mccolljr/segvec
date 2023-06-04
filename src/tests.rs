@@ -113,6 +113,21 @@ fn test_truncate() {
 }
 
 #[test]
+fn test_truncate_custom_factor() {
+    let mut s = SegVec::<i32, 4>::new();
+    for i in 0..10 {
+        s.push(i);
+    }
+
+    assert_eq!(s.len(), 10);
+    assert_eq!(s.capacity(), 16);
+
+    s.truncate(8);
+    assert_eq!(s.len(), 8);
+    assert_eq!(s.capacity(), 8);
+}
+
+#[test]
 fn test_iter() {
     let mut v = SegVec::<i32, 1>::new();
     v.push(1);

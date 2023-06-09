@@ -1,14 +1,14 @@
 use num_integer::Roots;
 
 // Note: we do *not* need checked math here, because in all practical applications we will see
-//       out-of-memory before the math overflows
+//       out-of-memory long before the math overflows
 
 // The math here works with any non-zero value for FACTOR, but using powers of two should
 // optimize to significantly more efficient code.
 
 // IDEA: Some MemConfig methods can be somewhat expensive, iterators and other methods may use
-//       a thread-local cache, when the next indexing is within the same segment then no
-//       expensive calculations have to be done.
+//       a cache, when the next indexing is within the same segment then no expensive
+//       calculations have to be done.
 
 /// Configures the sizes of segments and how to index entries. `Linear`, `Proportional` and
 /// `Exponential` implement this trait.

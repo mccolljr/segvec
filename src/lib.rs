@@ -77,6 +77,7 @@ use std::ops::{Bound, Index, IndexMut, RangeBounds};
 /// The default is `Exponential<1>` which should work for most cases.
 pub struct SegVec<T, C: MemConfig = Exponential<1>> {
     len: usize,
+    capacity: usize,
     segments: detail::Segments<T>,
     _config: PhantomData<C>,
 }
@@ -95,6 +96,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
         C::debug_assert_config();
         SegVec {
             len: 0,
+            capacity: 0,
             segments: detail::Segments::new(),
             _config: PhantomData,
         }
@@ -171,19 +173,26 @@ impl<T, C: MemConfig> SegVec<T, C> {
     ///
     /// # Panics
     /// - If the required capacity overflows `usize`
+    #[inline]
     pub fn reserve(&mut self, additional: usize) {
         let min_cap = match self.len().checked_add(additional) {
             Some(c) => c,
             None => capacity_overflow(),
         };
-        if min_cap <= self.capacity() {
-            return;
+        if min_cap > self.capacity {
+            self.reserve_cold(min_cap);
         }
+    }
+
+    // do the real reserving in a cold path
+    #[cold]
+    fn reserve_cold(&mut self, min_cap: usize) {
         let (segment, _) = C::segment_and_offset(min_cap - 1);
         for i in self.segments.len()..=segment {
             let seg_size = C::segment_size(i);
             self.segments.push(detail::Segment::with_capacity(seg_size));
         }
+        self.capacity = self.capacity();
     }
 
     /// Returns a reference to the data at the given index in the [`SegVec`][crate::SegVec], if it
@@ -292,6 +301,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
                 self.segments.drain(seg + 1..);
             }
             self.len = len;
+            self.capacity = self.capacity();
         }
     }
 
@@ -771,6 +781,7 @@ impl<T: Clone, C: MemConfig> Clone for SegVec<T, C> {
     fn clone(&self) -> Self {
         SegVec {
             len: self.len,
+            capacity: self.capacity,
             segments: self.segments.clone(),
             _config: PhantomData,
         }

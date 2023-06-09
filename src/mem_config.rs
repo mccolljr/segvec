@@ -13,6 +13,15 @@ use num_integer::Roots;
 /// Configures the sizes of segments and how to index entries. `Linear`, `Proportional` and
 /// `Exponential` implement this trait.
 pub trait MemConfig {
+    /// Called by ctors to assert that the configuration is valid.
+    ///
+    /// Some `MemConfig` implementations may put constraints on (const generic)
+    /// parameters. Currently it is impossible to assert these at compile time in stable
+    /// rust. Thus in debug builds we once check these constraints when a `SegVec` uses some
+    /// config. The three shipped `MemConfig` implementations check here that the 'FACTOR' is
+    /// not zero.
+    fn debug_assert_config();
+
     /// Takes the number of allocated segments, returns the total capacity.
     fn capacity(segments: usize) -> usize;
 
@@ -26,6 +35,11 @@ pub trait MemConfig {
 /// Linear growth, all segments have the same (FACTOR) length.
 pub struct Linear<const FACTOR: usize>;
 impl<const FACTOR: usize> MemConfig for Linear<FACTOR> {
+    #[track_caller]
+    fn debug_assert_config() {
+        debug_assert_ne!(FACTOR, 0, "FACTOR must be greater than 0")
+    }
+
     #[inline]
     fn capacity(segments: usize) -> usize {
         segments * FACTOR
@@ -45,6 +59,11 @@ impl<const FACTOR: usize> MemConfig for Linear<FACTOR> {
 /// Proportional growth, each segment is segment_number*FACTOR sized.
 pub struct Proportional<const FACTOR: usize>;
 impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
+    #[track_caller]
+    fn debug_assert_config() {
+        debug_assert_ne!(FACTOR, 0, "FACTOR must be greater than 0")
+    }
+
     #[inline]
     fn capacity(segments: usize) -> usize {
         segments * (segments + 1) / 2 * FACTOR
@@ -72,6 +91,11 @@ impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
 /// Exponential growth, each subsequent segment is as big as the sum of all segments before.
 pub struct Exponential<const FACTOR: usize>;
 impl<const FACTOR: usize> MemConfig for Exponential<FACTOR> {
+    #[track_caller]
+    fn debug_assert_config() {
+        debug_assert_ne!(FACTOR, 0, "FACTOR must be greater than 0")
+    }
+
     #[inline]
     fn capacity(segments: usize) -> usize {
         if segments == 0 {

@@ -48,7 +48,7 @@ pub mod detail {
 }
 
 use std::cmp;
-use std::convert::TryFrom;
+// TODO: unused yet use std::convert::TryFrom;
 use std::default::Default;
 use std::fmt::Debug;
 use std::hash::Hash;

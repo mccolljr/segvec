@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 use num_integer::Roots;
 
 // Note: we do *not* need checked math here, because in all practical applications we will see
@@ -17,7 +18,7 @@ pub trait MemConfig {
     ///
     /// Some `MemConfig` implementations may put constraints on (const generic)
     /// parameters. Currently it is impossible to assert these at compile time in stable
-    /// rust. Thus in debug builds we once check these constraints when a `SegVec` uses some
+    /// rust. In debug builds we check these constraints when a `SegVec` uses some
     /// config. The three shipped `MemConfig` implementations check here that the 'FACTOR' is
     /// not zero.
     fn debug_assert_config();
@@ -83,7 +84,7 @@ impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
         if segment == 0 {
             (0, index)
         } else {
-            (segment as usize, index - Self::capacity(segment))
+            (segment, index - Self::capacity(segment))
         }
     }
 }

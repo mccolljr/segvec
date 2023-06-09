@@ -1,18 +1,23 @@
 //! This crate provides the [`SegVec`][crate::SegVec] data structure.
 //!
-//! It is similar to [`Vec`][std::vec::Vec], but allocates memory in chunks of increasing size, referred to as
+//! It is similar to [`Vec`][std::vec::Vec], but allocates memory in chunks, referred to as
 //! "segments". This involves a few trade-offs:
 //!
 //! #### Pros:
 //!
-//! - Element addresses are stable across [`push`][crate::SegVec::push] operations even if the `SegVec` must grow.
-//! - Resizing only allocates the additional space needed, and doesn't require copying.
+//! - Element addresses are stable across [`push`][crate::SegVec::push] operations even if the
+//!   `SegVec` must grow.
+//! - Resizing only allocates the additional space needed, and doesn't
+//!   require copying.
 //!
 //! #### Cons:
 //!
-//! - Operations are slower (some, like [`insert`][crate::SegVec::insert], [`remove`][crate::SegVec::remove], and [`drain`][crate::SegVec::drain], are much slower) than for a `Vec`
-//!    due to the need for multiple pointer dereferences and conversion between linear indexes and `(segment, offset)` pairs
-//! - Direct slicing is unavailable (i.e. no `&[T]` or `&mut [T]`), though `slice` and `slice_mut` are available
+//! - Operations are slower (some, like [`insert`][crate::SegVec::insert],
+//!   [`remove`][crate::SegVec::remove], and [`drain`][crate::SegVec::drain], are much slower)
+//!   than for a `Vec` due to the need for multiple pointer dereferences and conversion between
+//!   linear indexes and `(segment, offset)` pairs
+//! - Direct slicing is unavailable (i.e. no `&[T]` or `&mut [T]`), though `slice` and
+//!   `slice_mut` are available
 //!
 //! ## Use Cases
 //!
@@ -26,6 +31,9 @@
 
 #[cfg(test)]
 mod tests;
+
+mod mem_config;
+pub use mem_config::*;
 
 pub mod detail {
     #[cfg(feature = "thin-segments")]
@@ -45,63 +53,60 @@ use std::default::Default;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::{FromIterator, FusedIterator};
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Bound, Index, IndexMut, RangeBounds};
 
 /// A data structure similar to [`Vec`][std::vec::Vec], but that does not copy on re-size and can
 /// release memory when it is truncated.
 ///
-/// Capacity is allocated in "segments".
-/// If we assume the default `FACTOR` of 1, this means:
-/// - A `SegVec` with a capacity of 0 does not allocate.
-/// - A `SegVec` with a capacity of 1 allocates a single segment of length 1.
-/// - A `SegVec` with a capacity of 2 allocates two segments of length 1.
-/// - A `SegVec` with a capacity of 3 or 4 elements allocates two segments of length 1,
-///   and a segment of length 2.
+/// Capacity is allocated in "segments". A empty `SegVec` of capacity 0 does not allocate.
+/// Allocating new segments is controlled by a [`MemConfig`] policy. Segvec comes with three
+/// predefined implementations. These implementations take an non-zero parameter which defines
+/// the minimum number of elements in a segment, all segments are multiples of this 'FACTOR'.
+/// This `FACTOR` should ideally be a power of two as this optimizes to much more efficient code.
 ///
-/// If we account for non-default values for `FACTOR`, this means:
-/// - A `SegVec` with a capacity of 0 does not allocate.
-/// - A `SegVec` with a capacity of 1 allocates a single segment of length 1 * FACTOR.
-/// - A `SegVec` with a capacity of 2 allocates two segments of length 1 * FACTOR.
-/// - A `SegVec` with a capacity of 3 or 4 elements allocates two segments of length 1 * FACTOR,
-///   and a segment of length 2 * FACTOR.
+/// 1. [`Linear<FACTOR>`]
+///    All segments have the same size.
+/// 2. [`Proportional<FACTOR>`]
+///    Segments grow proportionally to their segment number `[FACTOR, 2*FACTOR, 3*FACTOR, ..]`.
+/// 3. [`Exponential<FACTOR>`]
+///    Segments grow exponentially to their segment number, each subsequent segment is as large as
+///    the size of all preceeding segments `[FACTOR, FACTOR, 2*FACTOR, 4*FACTOR, 8*FACTOR, ..]`.
 ///
-/// Each subsequent segment is allocated with a capacity equal to the total capacity of the preceeding
-/// segments. In other words, each segment after the first segment doubles the capacity of the `SegVec`.
-/// If the growth factor is a power of two (such as the default growth factor of 1), the capacity of the
-/// `SegVec` will always be a power of two.
-pub struct SegVec<T, const FACTOR: usize = 1> {
+/// The default is `Exponential<1>` which should work for most cases.
+pub struct SegVec<T, C: MemConfig = Exponential<1>> {
     len: usize,
-    capacity: usize,
     segments: detail::Segments<T>,
+    _config: PhantomData<C>,
 }
 
-impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
-    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0 using the default growth factor of 1.
+impl<T, C: MemConfig> SegVec<T, C> {
+    /// Create a new [`SegVec`][crate::SegVec] with a length and capacity of 0.
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// assert_eq!(v.capacity(), 0);
     /// v.reserve(1);
     /// assert_eq!(v.capacity(), 1);
     /// ```
     pub fn new() -> Self {
-        assert!(FACTOR > 0, "FACTOR must be greater than 0");
+        C::debug_assert_config();
         SegVec {
             len: 0,
-            capacity: 0,
             segments: detail::Segments::new(),
+            _config: PhantomData,
         }
     }
 
     /// Create a new [`SegVec`][crate::SegVec] with a length of 0 and a capacity large enough to
-    /// hold the given number of elements, using the default growth factor of 1.
+    /// hold the given number of elements.
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let v: SegVec<i32, 1> = SegVec::with_capacity(5);
-    /// assert_eq!(v.capacity(), 8);
+    /// let v: SegVec<i32> = SegVec::with_capacity(5);
+    /// assert!(v.capacity() >= 5);
     /// ```
     ///
     /// # Panics
@@ -116,7 +121,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// assert_eq!(v.len(), 2);
@@ -130,7 +135,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::with_capacity(10);
+    /// let mut v: SegVec<i32> = SegVec::with_capacity(10);
     /// assert!(v.is_empty());
     /// v.push(1);
     /// assert!(!v.is_empty());
@@ -144,12 +149,12 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::with_capacity(3);
+    /// let mut v: SegVec<i32> = SegVec::with_capacity(3);
     /// assert_eq!(v.capacity(), 4);
     /// ```
     #[inline]
     pub fn capacity(&self) -> usize {
-        self.capacity
+        C::capacity(self.segments.len())
     }
 
     /// Reserve enough capacity to insert the given number of elements into the
@@ -158,7 +163,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// assert_eq!(v.capacity(), 0);
     /// v.reserve(3);
     /// assert_eq!(v.capacity(), 4);
@@ -174,11 +179,10 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
         if min_cap <= self.capacity() {
             return;
         }
-        let (segment, _) = self.segment_and_offset(min_cap - 1);
+        let (segment, _) = C::segment_and_offset(min_cap - 1);
         for i in self.segments.len()..=segment {
-            let seg_size = self.segment_capacity(i);
+            let seg_size = C::segment_size(i);
             self.segments.push(detail::Segment::with_capacity(seg_size));
-            self.capacity += seg_size;
         }
     }
 
@@ -187,14 +191,14 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// assert_eq!(v.get(0), None);
     /// v.push(1);
     /// assert_eq!(*v.get(0).unwrap(), 1);
     /// ```
     pub fn get(&self, index: usize) -> Option<&T> {
         if index < self.len {
-            let (seg, offset) = self.segment_and_offset(index);
+            let (seg, offset) = C::segment_and_offset(index);
             Some(&self.segments[seg][offset])
         } else {
             None
@@ -206,14 +210,14 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// assert_eq!(v.get_mut(0), None);
     /// v.push(1);
     /// assert_eq!(*v.get_mut(0).unwrap(), 1);
     /// ```
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index < self.len {
-            let (seg, offset) = self.segment_and_offset(index);
+            let (seg, offset) = C::segment_and_offset(index);
             Some(&mut self.segments[seg][offset])
         } else {
             None
@@ -224,7 +228,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// assert_eq!(v[0], 1);
     /// ```
@@ -233,7 +237,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     /// - If the required capacity overflows `usize`
     pub fn push(&mut self, val: T) {
         self.reserve(1);
-        let (seg, _) = self.segment_and_offset(self.len);
+        let (seg, _) = C::segment_and_offset(self.len);
         self.segments[seg].push(val);
         self.len += 1;
     }
@@ -243,7 +247,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// assert_eq!(v.pop().unwrap(), 1);
     /// ```
@@ -251,7 +255,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
         match self.len {
             0 => None,
             size => {
-                let (seg, offset) = self.segment_and_offset(size);
+                let (seg, offset) = C::segment_and_offset(size);
                 self.len -= 1;
                 match offset {
                     0 => self.segments[seg - 1].pop(),
@@ -267,19 +271,18 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.push(3);
     /// assert_eq!(v.len(), 3);
-    /// assert_eq!(v.capacity(), 4);
+    /// assert!(v.capacity() >= 3);
     /// v.truncate(1);
     /// assert_eq!(v.len(), 1);
-    /// assert_eq!(v.capacity(), 1);
     /// ```
     pub fn truncate(&mut self, len: usize) {
-        if len < self.capacity {
-            let (seg, offset) = self.segment_and_offset(len);
+        if len < self.capacity() {
+            let (seg, offset) = C::segment_and_offset(len);
             if offset == 0 {
                 self.segments.drain(seg..);
             } else {
@@ -288,30 +291,21 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
                 }
                 self.segments.drain(seg + 1..);
             }
-            self.capacity = match self.segments.len() {
-                0 => 0,
-                n => match 2usize
-                    .checked_pow((n - 1) as u32)
-                    .and_then(|c| c.checked_mul(FACTOR))
-                {
-                    Some(c) => c,
-                    None => capacity_overflow(),
-                },
-            };
             self.len = len;
         }
     }
 
     /// Resizes the [`SegVec`][crate::SegVec] so that the length is equal to `new_len`.
     ///
-    /// If `new_len` is greater than `len`, the `SegVec` is extended by the difference, with each additional slot filled with the result of calling the closure `f`.
-    /// The return values from `f` will end up in the `SegVec` in the order they have been generated.
-    /// If `new_len` is less than `len`, the `SegVec` is simply truncated.
-    /// If `new_len` is equal to `len`, this is a no-op.
+    /// If `new_len` is greater than `len`, the `SegVec` is extended by the difference, with
+    /// each additional slot filled with the result of calling the closure `f`.  The return
+    /// values from `f` will end up in the `SegVec` in the order they have been generated.  If
+    /// `new_len` is less than `len`, the `SegVec` is simply truncated.  If `new_len` is equal
+    /// to `len`, this is a no-op.
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// let mut counter = 0i32;
     /// v.resize_with(4, || { counter += 1; counter });
     /// assert_eq!(counter, 4);
@@ -340,7 +334,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.resize(4, 100);
     /// assert_eq!(v.len(), 4);
     /// assert_eq!(v.pop().unwrap(), 100);
@@ -363,7 +357,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.push(3);
@@ -386,7 +380,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.insert(0, 100);
@@ -405,7 +399,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
             return;
         }
         self.reserve(1);
-        let (mut seg_idx, mut seg_offset) = self.segment_and_offset(index);
+        let (mut seg_idx, mut seg_offset) = C::segment_and_offset(index);
         let mut displaced = val;
         loop {
             let maybe_displaced = unsafe {
@@ -461,7 +455,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// assert_eq!(v.remove(1), 2);
@@ -477,7 +471,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
         if mem::size_of::<T>() == 0 {
             return self.pop().unwrap();
         }
-        let (mut seg_idx, seg_offset) = self.segment_and_offset(index);
+        let (mut seg_idx, seg_offset) = C::segment_and_offset(index);
         // SAFETY:
         // At this point, it is known that index points to a valid, non-zero-sized T in
         // the structure, and so it is safe to read a value of type T from this location
@@ -544,7 +538,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.drain(..).for_each(|v| println!("{}", v));
@@ -554,7 +548,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     /// # Panics
     /// - If the end index is greater than `self.len()`
     /// - If the start index is greater than the end index.
-    pub fn drain<R>(&mut self, range: R) -> Drain<T, FACTOR>
+    pub fn drain<R>(&mut self, range: R) -> Drain<T, C>
     where
         R: RangeBounds<usize>,
     {
@@ -571,7 +565,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// let s = v.slice(1..);
@@ -598,7 +592,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// let mut s = v.slice_mut(..1);
@@ -625,7 +619,7 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
     ///
     /// ```
     /// # use segvec::SegVec;
-    /// let mut v: SegVec<i32, 1> = SegVec::new();
+    /// let mut v: SegVec<i32> = SegVec::new();
     /// v.push(1);
     /// v.push(2);
     /// v.push(3);
@@ -765,55 +759,25 @@ impl<T, const FACTOR: usize> SegVec<T, FACTOR> {
         }
         (start, end)
     }
-
-    fn segment_capacity(&self, segment_index: usize) -> usize {
-        match segment_index {
-            0 => FACTOR,
-            n => {
-                let pow = u32::try_from(n - 1).expect("fewer than 64 segments");
-                match 2usize.checked_pow(pow).and_then(|n| n.checked_mul(FACTOR)) {
-                    Some(size) => size,
-                    None => capacity_overflow(),
-                }
-            }
-        }
-    }
-
-    fn segment_and_offset(&self, linear_index: usize) -> (usize, usize) {
-        let normal = linear_index
-            .checked_div(FACTOR)
-            .expect("non-zero growth factor");
-        let (segment, pow) = match checked_log2_floor(normal) {
-            None => (0usize, 0u32),
-            Some(s) => (s as usize + 1, s),
-        };
-        match 2usize.pow(pow).checked_mul(FACTOR) {
-            Some(mod_base) => {
-                let offset = linear_index % mod_base;
-                (segment, offset)
-            }
-            None => unreachable!(),
-        }
-    }
 }
 
-impl<T, const FACTOR: usize> Default for SegVec<T, FACTOR> {
+impl<T, C: MemConfig> Default for SegVec<T, C> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Clone, const FACTOR: usize> Clone for SegVec<T, FACTOR> {
+impl<T: Clone, C: MemConfig> Clone for SegVec<T, C> {
     fn clone(&self) -> Self {
         SegVec {
             len: self.len,
-            capacity: self.capacity,
             segments: self.segments.clone(),
+            _config: PhantomData,
         }
     }
 }
 
-impl<T, const FACTOR: usize> Index<usize> for SegVec<T, FACTOR> {
+impl<T, C: MemConfig> Index<usize> for SegVec<T, C> {
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -824,7 +788,7 @@ impl<T, const FACTOR: usize> Index<usize> for SegVec<T, FACTOR> {
     }
 }
 
-impl<T, const FACTOR: usize> IndexMut<usize> for SegVec<T, FACTOR> {
+impl<T, C: MemConfig> IndexMut<usize> for SegVec<T, C> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         let size = self.len;
         match self.get_mut(index) {
@@ -834,19 +798,19 @@ impl<T, const FACTOR: usize> IndexMut<usize> for SegVec<T, FACTOR> {
     }
 }
 
-impl<T: Debug, const FACTOR: usize> Debug for SegVec<T, FACTOR> {
+impl<T: Debug, C: MemConfig> Debug for SegVec<T, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(self.iter()).finish()
     }
 }
 
-impl<T: Hash, const FACTOR: usize> Hash for SegVec<T, FACTOR> {
+impl<T: Hash, C: MemConfig> Hash for SegVec<T, C> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.iter().for_each(|i| i.hash(state));
     }
 }
 
-impl<T, const FACTOR: usize> PartialEq for SegVec<T, FACTOR>
+impl<T, C: MemConfig> PartialEq for SegVec<T, C>
 where
     T: PartialEq,
 {
@@ -858,9 +822,9 @@ where
     }
 }
 
-impl<T, const FACTOR: usize> Eq for SegVec<T, FACTOR> where Self: PartialEq {}
+impl<T, C: MemConfig> Eq for SegVec<T, C> where Self: PartialEq {}
 
-impl<T, const FACTOR: usize> Extend<T> for SegVec<T, FACTOR> {
+impl<T, C: MemConfig> Extend<T> for SegVec<T, C> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let iter = iter.into_iter();
         let (min_size, max_size) = iter.size_hint();
@@ -872,13 +836,13 @@ impl<T, const FACTOR: usize> Extend<T> for SegVec<T, FACTOR> {
     }
 }
 
-impl<'a, T: Copy + 'a, const FACTOR: usize> Extend<&'a T> for SegVec<T, FACTOR> {
+impl<'a, T: Copy + 'a, C: MemConfig> Extend<&'a T> for SegVec<T, C> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         <Self as Extend<T>>::extend(self, iter.into_iter().copied())
     }
 }
 
-impl<T, const FACTOR: usize> FromIterator<T> for SegVec<T, FACTOR> {
+impl<T, C: MemConfig> FromIterator<T> for SegVec<T, C> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut v = SegVec::new();
         v.extend(iter);
@@ -886,7 +850,7 @@ impl<T, const FACTOR: usize> FromIterator<T> for SegVec<T, FACTOR> {
     }
 }
 
-impl<T, const FACTOR: usize> IntoIterator for SegVec<T, FACTOR> {
+impl<T, C: MemConfig> IntoIterator for SegVec<T, C> {
     type IntoIter = IntoIter<T>;
     type Item = T;
 
@@ -981,14 +945,14 @@ impl<T> ExactSizeIterator for IntoIter<T> {}
 /// If a `Drain` is forgotten (via [`std::mem::forget`]), it is unspecified how many elements are
 /// removed. The current implementation calls `SegVec::remove` on a single element on each call to
 /// `next`.
-pub struct Drain<'a, T, const FACTOR: usize> {
-    inner: &'a mut SegVec<T, FACTOR>,
+pub struct Drain<'a, T, C: MemConfig> {
+    inner: &'a mut SegVec<T, C>,
     index: usize,
     total: usize,
     drained: usize,
 }
 
-impl<'a, T, const FACTOR: usize> Iterator for Drain<'a, T, FACTOR> {
+impl<'a, T, C: MemConfig> Iterator for Drain<'a, T, C> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1007,7 +971,7 @@ impl<'a, T, const FACTOR: usize> Iterator for Drain<'a, T, FACTOR> {
     }
 }
 
-impl<'a, T, const FACTOR: usize> DoubleEndedIterator for Drain<'a, T, FACTOR> {
+impl<'a, T, C: MemConfig> DoubleEndedIterator for Drain<'a, T, C> {
     fn next_back(&mut self) -> Option<Self::Item> {
         let left = self.total - self.drained;
         if left > 0 {
@@ -1020,10 +984,10 @@ impl<'a, T, const FACTOR: usize> DoubleEndedIterator for Drain<'a, T, FACTOR> {
     }
 }
 
-impl<'a, T, const FACTOR: usize> FusedIterator for Drain<'a, T, FACTOR> {}
-impl<'a, T, const FACTOR: usize> ExactSizeIterator for Drain<'a, T, FACTOR> {}
+impl<'a, T, C: MemConfig> FusedIterator for Drain<'a, T, C> {}
+impl<'a, T, C: MemConfig> ExactSizeIterator for Drain<'a, T, C> {}
 
-impl<'a, T, const FACTOR: usize> Drop for Drain<'a, T, FACTOR> {
+impl<'a, T, C: MemConfig> Drop for Drain<'a, T, C> {
     fn drop(&mut self) {
         self.for_each(drop);
     }
@@ -1200,6 +1164,7 @@ impl<'a, T: 'a> ExactSizeIterator for SliceMutIter<'a, T> {}
 
 /// Returns the highest power of 2 that is less than or equal to `v` when `v` is non-zero.
 /// If `v` is zero, `None` is returned.
+#[cfg(test)]
 fn checked_log2_floor(v: usize) -> Option<u32> {
     if v > 0 {
         Some((usize::BITS - 1) - v.leading_zeros())

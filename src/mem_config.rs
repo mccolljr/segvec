@@ -24,7 +24,7 @@ pub trait MemConfig {
 }
 
 /// Linear growth, all segments have the same (FACTOR) length.
-struct Linear<const FACTOR: usize>;
+pub struct Linear<const FACTOR: usize>;
 impl<const FACTOR: usize> MemConfig for Linear<FACTOR> {
     #[inline]
     fn capacity(segments: usize) -> usize {
@@ -43,7 +43,7 @@ impl<const FACTOR: usize> MemConfig for Linear<FACTOR> {
 }
 
 /// Proportional growth, each segment is segment_number*FACTOR sized.
-struct Proportional<const FACTOR: usize>;
+pub struct Proportional<const FACTOR: usize>;
 impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
     #[inline]
     fn capacity(segments: usize) -> usize {
@@ -70,7 +70,7 @@ impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
 }
 
 /// Exponential growth, each subsequent segment is as big as the sum of all segments before.
-struct Exponential<const FACTOR: usize>;
+pub struct Exponential<const FACTOR: usize>;
 impl<const FACTOR: usize> MemConfig for Exponential<FACTOR> {
     #[inline]
     fn capacity(segments: usize) -> usize {

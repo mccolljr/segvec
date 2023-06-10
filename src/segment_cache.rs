@@ -39,13 +39,8 @@ impl<C: MemConfig> SegmentCache<C> {
         if (self.start..self.end).contains(&index) {
             // cache hit
             self.segment
-        } else if index >= self.end && index < self.end + C::factor() {
-            // in next segment
-            self.start = self.end;
-            self.segment += 1;
-            self.end = self.start + C::segment_size(self.segment);
-            self.segment
         } else {
+            // cache miss
             self.segment_cold(index)
         }
     }

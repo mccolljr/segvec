@@ -33,6 +33,21 @@ impl<C: MemConfig> SegmentCache<C> {
         }
     }
 
+    /// Index to Segment without updating the cache
+    #[inline(always)] // we have only few call sites, inlining won't bloat
+    pub fn segment(&self, index: usize) -> usize {
+        if (self.start..self.end).contains(&index) {
+            // cache hit
+            self.segment
+        } else if index >= self.end && index < self.end + C::factor() {
+            self.segment + 1
+        } else if index < self.start && index + C::factor() >= self.start {
+            self.segment - 1
+        } else {
+            C::segment(index)
+        }
+    }
+
     /// Serves segment_and_offset() from a cache, updates the cache when needed.
     // PLANNED: return check_capacity: bool hint when segment becomes bigger
     #[inline]

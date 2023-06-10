@@ -31,7 +31,7 @@ pub trait MemConfig {
 
     /// Gets the segment from a flat index
     fn segment(index: usize) -> usize {
-        let (s, i) = Self::segment_and_offset(index);
+        let (s, _) = Self::segment_and_offset(index);
         s
     }
 

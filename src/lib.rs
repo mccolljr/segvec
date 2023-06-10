@@ -122,6 +122,12 @@ impl<T, C: MemConfig> SegVec<T, C> {
         v
     }
 
+    /// Returns a [`SegmentCache`] suitable to be used with this `SegVec`.
+    #[inline]
+    pub fn new_cache(&self) -> SegmentCache<C> {
+        SegmentCache::<C>::new()
+    }
+
     /// The number of elements in the [`SegVec`][crate::SegVec]
     ///
     /// ```
@@ -183,16 +189,31 @@ impl<T, C: MemConfig> SegVec<T, C> {
             None => capacity_overflow(),
         };
         if min_cap > self.capacity {
-            self.reserve_cold(min_cap);
+            self.reserve_cold(min_cap, None);
+        }
+    }
+
+    #[inline]
+    pub fn reserve_cached(&mut self, additional: usize, cache: &mut SegmentCache<C>) {
+        let min_cap = match self.len().checked_add(additional) {
+            Some(c) => c,
+            None => capacity_overflow(),
+        };
+        if min_cap > self.capacity {
+            self.reserve_cold(min_cap, Some(cache));
         }
     }
 
     // do the real reserving in a cold path
     #[cold]
-    fn reserve_cold(&mut self, min_cap: usize) {
-        let (segment, _) = C::segment_and_offset(min_cap - 1);
+    fn reserve_cold(&mut self, min_cap: usize, mut cache: Option<&mut SegmentCache<C>>) {
+        let segment = cache
+            .as_mut()
+            .map_or_else(|| C::segment(min_cap - 1), |c| c.segment(min_cap - 1));
         for i in self.segments.len()..=segment {
-            let seg_size = C::segment_size(i);
+            let seg_size = cache
+                .as_ref()
+                .map_or_else(|| C::segment_size(i), |c| c.segment_size(i));
             self.segments.push(detail::Segment::with_capacity(seg_size));
         }
         self.capacity = self.capacity();
@@ -249,7 +270,14 @@ impl<T, C: MemConfig> SegVec<T, C> {
     /// - If the required capacity overflows `usize`
     pub fn push(&mut self, val: T) {
         self.reserve(1);
-        let (seg, _) = C::segment_and_offset(self.len);
+        let seg = C::segment(self.len);
+        self.segments[seg].push(val);
+        self.len += 1;
+    }
+
+    pub fn push_cached(&mut self, val: T, cache: &mut SegmentCache<C>) {
+        self.reserve_cached(1, cache);
+        let seg = cache.segment(self.len);
         self.segments[seg].push(val);
         self.len += 1;
     }

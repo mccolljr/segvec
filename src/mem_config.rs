@@ -31,6 +31,9 @@ pub trait MemConfig {
 
     /// Translates a flat index into (segment, offset)
     fn segment_and_offset(index: usize) -> (usize, usize);
+
+    /// returns the FACTOR
+    fn factor() -> usize;
 }
 
 /// Linear growth, all segments have the same (FACTOR) length.
@@ -54,6 +57,11 @@ impl<const FACTOR: usize> MemConfig for Linear<FACTOR> {
     #[inline]
     fn segment_and_offset(index: usize) -> (usize, usize) {
         (index / FACTOR, index % FACTOR)
+    }
+
+    #[inline]
+    fn factor() -> usize {
+        FACTOR
     }
 }
 
@@ -86,6 +94,11 @@ impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
         } else {
             (segment, index - Self::capacity(segment))
         }
+    }
+
+    #[inline]
+    fn factor() -> usize {
+        FACTOR
     }
 }
 
@@ -125,6 +138,11 @@ impl<const FACTOR: usize> MemConfig for Exponential<FACTOR> {
 
         let segment = linear_segment.ilog2() as usize;
         (segment + 1, index % (2_usize.pow(segment as u32) * FACTOR))
+    }
+
+    #[inline]
+    fn factor() -> usize {
+        FACTOR
     }
 }
 

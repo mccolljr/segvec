@@ -33,23 +33,55 @@ impl<C: MemConfig> SegmentCache<C> {
         }
     }
 
-    /// Index to Segment without updating the cache
-    #[inline(always)] // we have only few call sites, inlining won't bloat
-    pub fn segment(&self, index: usize) -> usize {
+    /// Index to Segment, updating the cache
+    #[inline] // we have only few call sites, inlining won't bloat
+    pub fn segment(&mut self, index: usize) -> usize {
         if (self.start..self.end).contains(&index) {
             // cache hit
             self.segment
         } else if index >= self.end && index < self.end + C::factor() {
-            self.segment + 1
-        } else if index < self.start && index + C::factor() >= self.start {
-            self.segment - 1
+            // in next segment
+            self.start = self.end;
+            self.segment += 1;
+            self.end = self.start + C::segment_size(self.segment);
+            self.segment
         } else {
-            C::segment(index)
+            self.segment_cold(index)
+        }
+    }
+
+    #[cold]
+    fn segment_cold(&mut self, index: usize) -> usize {
+        if index >= self.end && index < self.end + C::factor() {
+            // in next segment
+            self.start = self.end;
+            self.segment += 1;
+            self.end = self.start + C::segment_size(self.segment);
+            self.segment
+        } else if index < self.start && index + C::factor() >= self.start {
+            // in previous segment
+            self.end = self.start;
+            self.segment -= 1;
+            self.start = self.end - C::segment_size(self.segment);
+            self.segment
+        } else {
+            // cache miss
+            let s = C::segment(index);
+            if s > 0 {
+                let start = C::capacity(s);
+                self.start = start;
+                self.end = start + C::segment_size(s);
+            } else {
+                self.start = 0;
+                self.end = C::factor();
+            }
+            self.segment = s;
+            s
         }
     }
 
     /// Serves segment_and_offset() from a cache, updates the cache when needed.
-    // PLANNED: return check_capacity: bool hint when segment becomes bigger
+    // PLANNED: return check_capacity: bool hint when segment becomes bigger, remove capacity again then
     #[inline]
     pub fn segment_and_offset(&mut self, index: usize) -> (usize, usize) {
         if (self.start..self.end).contains(&index) {

@@ -1,5 +1,4 @@
 #![allow(clippy::needless_range_loop)]
-use crate::SegmentCache;
 use num_integer::Roots;
 
 // Note: we do *not* need checked math here, because in all practical applications we will see
@@ -30,6 +29,12 @@ pub trait MemConfig {
     /// Returns the size of the nth segment (starting at 0).
     fn segment_size(segment: usize) -> usize;
 
+    /// Gets the segment from a flat index
+    fn segment(index: usize) -> usize {
+        let (s, i) = Self::segment_and_offset(index);
+        s
+    }
+
     /// Translates a flat index into (segment, offset)
     fn segment_and_offset(index: usize) -> (usize, usize);
 
@@ -54,6 +59,11 @@ impl<const FACTOR: usize> MemConfig for Linear<FACTOR> {
     #[inline]
     fn segment_size(_segment: usize) -> usize {
         FACTOR
+    }
+
+    #[inline]
+    fn segment(index: usize) -> usize {
+        index / FACTOR
     }
 
     #[inline]
@@ -87,10 +97,14 @@ impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
     }
 
     #[inline]
-    fn segment_and_offset(index: usize) -> (usize, usize) {
+    fn segment(index: usize) -> usize {
         let linear_segment = index / FACTOR;
+        ((8 * linear_segment + 1).sqrt() - 1) / 2
+    }
 
-        let segment = ((8 * linear_segment + 1).sqrt() - 1) / 2;
+    #[inline]
+    fn segment_and_offset(index: usize) -> (usize, usize) {
+        let segment = Self::segment(index);
 
         if segment == 0 {
             (0, index)
@@ -133,15 +147,25 @@ impl<const FACTOR: usize> MemConfig for Exponential<FACTOR> {
     }
 
     #[inline]
-    fn segment_and_offset(index: usize) -> (usize, usize) {
+    fn segment(index: usize) -> usize {
         let linear_segment = index / FACTOR;
 
         if linear_segment == 0 {
-            return (0, index);
+            0
+        } else {
+            linear_segment.ilog2() as usize + 1
         }
+    }
 
-        let segment = linear_segment.ilog2() as usize;
-        (segment + 1, index % (2_usize.pow(segment as u32) * FACTOR))
+    #[inline]
+    fn segment_and_offset(index: usize) -> (usize, usize) {
+        let segment = Self::segment(index);
+
+        if segment == 0 {
+            (0, index)
+        } else {
+            (segment, index % (2_usize.pow(segment as u32 - 1) * FACTOR))
+        }
     }
 
     #[inline]

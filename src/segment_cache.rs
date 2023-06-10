@@ -35,11 +35,20 @@ impl<C: MemConfig> SegmentCache<C> {
 
     /// Serves segment_and_offset() from a cache, updates the cache when needed.
     // PLANNED: return check_capacity: bool hint when segment becomes bigger
+    #[inline]
     pub fn segment_and_offset(&mut self, index: usize) -> (usize, usize) {
         if (self.start..self.end).contains(&index) {
             // cache hit
             (self.segment, index - self.start)
-        } else if index >= self.end && index < self.end + C::factor() {
+        } else {
+            // near misses/ misses
+            self.segment_and_offset_cold(index)
+        }
+    }
+
+    #[cold]
+    fn segment_and_offset_cold(&mut self, index: usize) -> (usize, usize) {
+        if index >= self.end && index < self.end + C::factor() {
             // in next segment
             self.start = self.end;
             self.segment += 1;

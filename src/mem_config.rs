@@ -1,4 +1,5 @@
 #![allow(clippy::needless_range_loop)]
+use crate::SegmentCache;
 use num_integer::Roots;
 
 // Note: we do *not* need checked math here, because in all practical applications we will see

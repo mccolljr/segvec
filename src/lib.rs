@@ -35,6 +35,9 @@ mod tests;
 mod mem_config;
 pub use mem_config::*;
 
+mod segment_cache;
+pub use segment_cache::*;
+
 pub mod detail {
     #[cfg(feature = "thin-segments")]
     pub type Segment<T> = thin_vec::ThinVec<T>;

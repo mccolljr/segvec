@@ -29,7 +29,7 @@ fn test_new() {
     assert_eq!(v.len(), 0);
     assert_eq!(v.capacity(), 0);
 
-    let v = SegVec::<(), 1>::with_capacity(0);
+    let v = SegVec::<(), Exponential<1>>::with_capacity(0);
     assert_eq!(v.len(), 0);
     assert_eq!(v.capacity(), 0);
 }
@@ -37,7 +37,7 @@ fn test_new() {
 #[test]
 #[should_panic(expected = "FACTOR must be greater than 0")]
 fn test_new_with_bad_factor() {
-    SegVec::<(), 0>::new();
+    SegVec::<(), Exponential<0>>::new();
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn test_with_capacity() {
     };
 
     for hint in 1..TEST_MAX {
-        let v = SegVec::<(), 1>::with_capacity(hint);
+        let v = SegVec::<(), Exponential<1>>::with_capacity(hint);
         assert_eq!(v.len(), 0);
         assert_eq!(v.capacity(), hint.next_power_of_two());
     }
@@ -62,10 +62,10 @@ fn test_push_pop() {
     } else {
         2usize.pow(16)
     };
-    let mut v = SegVec::<usize, 1>::with_capacity(0);
+    let mut v = SegVec::<usize, Exponential<1>>::with_capacity(0);
     for i in 0..TEST_MAX {
         v.push(i);
-        assert_eq!(v.segments.len(), (v.capacity as f64).log2() as usize + 1);
+        assert_eq!(v.segments.len(), (v.capacity() as f64).log2() as usize + 1);
     }
     assert_eq!(v.len(), TEST_MAX);
     assert_eq!(v.capacity(), TEST_MAX);
@@ -78,7 +78,7 @@ fn test_push_pop() {
 fn test_truncate() {
     let dc = Cell::new(0usize);
     const TEST_MAX: usize = 2usize.pow(7);
-    let mut v = SegVec::<DropCount<'_, usize>, 1>::with_capacity(TEST_MAX);
+    let mut v = SegVec::<DropCount<'_, usize>, Exponential<1>>::with_capacity(TEST_MAX);
     for i in 0..TEST_MAX {
         v.push(DropCount(&dc, i));
     }
@@ -114,7 +114,7 @@ fn test_truncate() {
 
 #[test]
 fn test_truncate_custom_factor() {
-    let mut s = SegVec::<i32, 4>::new();
+    let mut s = SegVec::<i32, Exponential<4>>::new();
     for i in 0..10 {
         s.push(i);
     }
@@ -129,7 +129,7 @@ fn test_truncate_custom_factor() {
 
 #[test]
 fn test_iter() {
-    let mut v = SegVec::<i32, 1>::new();
+    let mut v = SegVec::<i32, Exponential<1>>::new();
     v.push(1);
     v.push(2);
     v.push(3);
@@ -170,7 +170,7 @@ fn test_iter() {
 #[test]
 fn test_into_iter() {
     let dc = Cell::new(0usize);
-    let mut v = SegVec::<DropCount<'_, usize>, 1>::new();
+    let mut v = SegVec::<DropCount<'_, usize>, Exponential<1>>::new();
     v.push(DropCount(&dc, 1));
     v.push(DropCount(&dc, 2));
     v.push(DropCount(&dc, 3));
@@ -201,7 +201,7 @@ fn test_into_iter() {
 
 #[test]
 fn test_from_iter() {
-    let v = SegVec::<i32, 1>::from_iter([1, 2, 3, 4, 5, 6]);
+    let v = SegVec::<i32, Exponential<1>>::from_iter([1, 2, 3, 4, 5, 6]);
     assert_eq!(v.len(), 6);
     assert_eq!(v.capacity(), 8);
     assert_eq!(v[0], 1);
@@ -215,7 +215,7 @@ fn test_from_iter() {
 
 #[test]
 fn test_insert_remove() {
-    let mut v = SegVec::<_, 1>::with_capacity(0);
+    let mut v = SegVec::<_, Exponential<1>>::with_capacity(0);
     v.insert(0, 1);
     assert_eq!(v.len(), 1);
     assert_eq!(v.capacity(), 1);
@@ -249,7 +249,7 @@ fn test_insert_remove() {
     assert_eq!(v.capacity(), 8);
 
     let mut rng = rand::thread_rng();
-    let mut v = SegVec::<i32, 512>::with_capacity(1024);
+    let mut v = SegVec::<i32, Exponential<512>>::with_capacity(1024);
     for i in 0..1024 {
         v.insert(rng.gen_range(0..=i as usize), rng.gen_range(0..100));
     }
@@ -264,7 +264,10 @@ fn test_insert_remove() {
 
 #[test]
 fn test_drain() {
-    fn make_segvec_8() -> (Box<Cell<usize>>, SegVec<DropCount<'static, i32>, 1>) {
+    fn make_segvec_8() -> (
+        Box<Cell<usize>>,
+        SegVec<DropCount<'static, i32>, Exponential<1>>,
+    ) {
         let dc = Box::into_raw(Box::new(Cell::new(0)));
         let mut v = SegVec::with_capacity(0);
         v.push(DropCount(unsafe { &*dc }, 1));
@@ -346,7 +349,7 @@ fn test_drain() {
 
 #[test]
 fn test_slice() {
-    let mut v = SegVec::<_, 1>::with_capacity(8);
+    let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
     v.push(1);
     v.push(2);
     v.push(3);
@@ -374,7 +377,7 @@ fn test_slice() {
 
 #[test]
 fn test_slice_mut() {
-    let mut v = SegVec::<_, 1>::with_capacity(8);
+    let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
     v.push(1);
     v.push(2);
     v.push(3);
@@ -398,7 +401,7 @@ fn test_slice_mut() {
 fn test_sort() {
     let mut rng = rand::thread_rng();
     for i in 0..1000usize {
-        let mut v = SegVec::<_, 1>::with_capacity(i);
+        let mut v = SegVec::<_, Exponential<1>>::with_capacity(i);
         while v.len() < v.capacity() {
             v.push(rng.gen_range(0i32..100));
         }
@@ -415,10 +418,10 @@ fn test_sort() {
 
 #[test]
 fn test_hash() {
-    let mut v1 = SegVec::<_, 1>::with_capacity(8);
+    let mut v1 = SegVec::<_, Exponential<1>>::with_capacity(8);
     v1.push(1);
     v1.push(2);
-    let mut v2 = SegVec::<_, 1>::with_capacity(4);
+    let mut v2 = SegVec::<_, Exponential<1>>::with_capacity(4);
     v2.push(1);
     v2.push(2);
     let mut h1 = DefaultHasher::new();
@@ -430,7 +433,7 @@ fn test_hash() {
 
 #[test]
 fn test_extend() {
-    let mut v = SegVec::<_, 1>::new();
+    let mut v = SegVec::<_, Exponential<1>>::new();
     v.extend([1, 2, 3, 4, 5]);
     assert_eq!(v.len(), 5);
     assert_eq!(v.capacity(), 8);
@@ -439,7 +442,7 @@ fn test_extend() {
 
 #[test]
 fn test_extend_ref() {
-    let mut v = SegVec::<u8, 1>::new();
+    let mut v = SegVec::<u8, Exponential<1>>::new();
     v.extend("Hello!".as_bytes());
     assert_eq!(v.len(), 6);
     assert_eq!(v.capacity(), 8);
@@ -451,7 +454,7 @@ fn test_extend_ref() {
 
 #[test]
 fn test_resize() {
-    let mut v = SegVec::<_, 1>::new();
+    let mut v = SegVec::<_, Exponential<1>>::new();
     v.resize(8, 12);
     assert_eq!(v.len(), 8);
     assert_eq!(v.capacity(), 8);
@@ -479,7 +482,7 @@ fn test_resize_with() {
         counter.set(counter.get() + 1);
         counter.get()
     };
-    let mut v = SegVec::<_, 1>::new();
+    let mut v = SegVec::<_, Exponential<1>>::new();
     v.resize_with(8, &mut get_value);
     assert_eq!(v.len(), 8);
     assert_eq!(v.capacity(), 8);
@@ -500,7 +503,7 @@ fn test_resize_with() {
 #[test]
 #[should_panic(expected = "capacity overflow")]
 fn test_stress_growth_factor_too_large() {
-    let mut sv = SegVec::<u16, { usize::MAX }>::new();
+    let mut sv = SegVec::<u16, Exponential<{ usize::MAX }>>::new();
     sv.reserve(1);
     sv.push(1);
     assert_eq!(sv.len(), 1);

@@ -4,53 +4,48 @@ use segvec::*;
 pub fn criterion_benchmark(c: &mut Criterion) {
     //const N: usize = 10000;
     const N: i32 = 1000000;
-    c.bench_function("push values on a std Vec", |b| {
+
+    let mut group = c.benchmark_group("push values");
+
+    group.bench_function("std Vec", |b| {
         b.iter_with_large_drop(|| {
             let mut v: Vec<i32> = Vec::with_capacity(0);
             for i in 0..N {
                 v.push(black_box(i));
             }
         });
-    })
-    .bench_function("push values with default growth factor", |b| {
+    });
+    group.bench_function("Exponential<1>", |b| {
         b.iter_with_large_drop(|| {
             let mut v: SegVec<i32> = SegVec::with_capacity(0);
             for i in 0..N {
                 v.push(black_box(i));
             }
         });
-    })
-    .bench_function("push values with large growth factor", |b| {
+    });
+    group.bench_function("Linear<1024>", |b| {
+        b.iter_with_large_drop(|| {
+            let mut v: SegVec<i32, Linear> = SegVec::with_capacity(0);
+            for i in 0..N {
+                v.push(black_box(i));
+            }
+        });
+    });
+    group.bench_function("Exponential<16>", |b| {
+        b.iter_with_large_drop(|| {
+            let mut v: SegVec<i32, Exponential> = SegVec::with_capacity(0);
+            for i in 0..N {
+                v.push(black_box(i));
+            }
+        });
+    });
+    group.bench_function("Exponential<2500>", |b| {
         b.iter_with_large_drop(|| {
             let mut v: SegVec<i32, Exponential<2500>> = SegVec::with_capacity(0);
             for i in 0..N {
                 v.push(black_box(i));
             }
         })
-    })
-    .bench_function("push values with linear growth, factor 32", |b| {
-        b.iter_with_large_drop(|| {
-            let mut v: SegVec<i32, Linear<32>> = SegVec::with_capacity(0);
-            for i in 0..N {
-                v.push(black_box(i));
-            }
-        });
-    })
-    .bench_function("push values with proportional growth, factor 32", |b| {
-        b.iter_with_large_drop(|| {
-            let mut v: SegVec<i32, Proportional<32>> = SegVec::with_capacity(0);
-            for i in 0..N {
-                v.push(black_box(i));
-            }
-        })
-    })
-    .bench_function("push values with exponential growth, factor 32", |b| {
-        b.iter_with_large_drop(|| {
-            let mut v: SegVec<i32, Exponential<32>> = SegVec::with_capacity(0);
-            for i in 0..N {
-                v.push(black_box(i));
-            }
-        });
     });
 }
 

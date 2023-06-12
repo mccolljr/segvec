@@ -5,11 +5,7 @@ use num_integer::Roots;
 //       out-of-memory long before the math overflows
 
 // The math here works with any non-zero value for FACTOR, but using powers of two should
-// optimize to significantly more efficient code.
-
-// IDEA: Some MemConfig methods can be somewhat expensive, iterators and other methods may use
-//       a cache, when the next indexing is within the same segment then no expensive
-//       calculations have to be done.
+// optimize to more efficient code.
 
 /// Configures the sizes of segments and how to index entries. `Linear`, `Proportional` and
 /// `Exponential` implement this trait.
@@ -34,7 +30,7 @@ pub trait MemConfig {
 }
 
 /// Linear growth, all segments have the same (FACTOR) length.
-pub struct Linear<const FACTOR: usize>;
+pub struct Linear<const FACTOR: usize = 1024>;
 impl<const FACTOR: usize> MemConfig for Linear<FACTOR> {
     #[track_caller]
     fn debug_assert_config() {
@@ -90,7 +86,7 @@ impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
 }
 
 /// Exponential growth, each subsequent segment is as big as the sum of all segments before.
-pub struct Exponential<const FACTOR: usize>;
+pub struct Exponential<const FACTOR: usize = 16>;
 impl<const FACTOR: usize> MemConfig for Exponential<FACTOR> {
     #[track_caller]
     fn debug_assert_config() {

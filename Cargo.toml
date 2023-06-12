@@ -10,7 +10,7 @@ description = "SegVec data structure for rust. Similar to Vec, but allocates mem
 
 [dev-dependencies]
 rand = "0.8.4"
-criterion = { version = "0.3.4", features = ["html_reports"] }
+criterion = { version = "0.5.1", features = ["html_reports"] }
 
 [dependencies]
 smallvec = { version = "1.10.0", features = ["const_generics", "union"], optional = true }
@@ -23,4 +23,8 @@ thin-segments = ["thin-vec"]
 
 [[bench]]
 name = "segvec_benchmark"
+harness = false
+
+[[bench]]
+name = "segvec_cached"
 harness = false

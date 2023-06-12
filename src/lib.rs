@@ -123,6 +123,14 @@ impl<T, C: MemConfig> SegVec<T, C> {
     }
 
     /// Returns a [`SegmentCache`] suitable to be used with this `SegVec`.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let mut v: SegVec<i32> = SegVec::new();
+    /// let mut c = v.new_cache();
+    /// v.push_cached(1, &mut c);
+    /// assert!(!v.is_empty());
+    /// ```
     #[inline]
     pub fn new_cache(&self) -> SegmentCache<C> {
         SegmentCache::<C>::new()
@@ -193,6 +201,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
         }
     }
 
+    /// Same as [`SegVec::reserve`] but takes an additional [`SegmentCache`] reference to
+    /// improve index calculations.
     #[inline]
     pub fn reserve_cached(&mut self, additional: usize, cache: &mut SegmentCache<C>) {
         let min_cap = match self.len().checked_add(additional) {
@@ -238,6 +248,17 @@ impl<T, C: MemConfig> SegVec<T, C> {
         }
     }
 
+    /// Same as [`SegVec::get`] but takes an additional [`SegmentCache`] reference to
+    /// improve index calculations.
+    pub fn get_cached(&self, index: usize, cache: &mut SegmentCache<C>) -> Option<&T> {
+        if index < self.len {
+            let (seg, offset) = cache.segment_and_offset(index);
+            Some(&self.segments[seg][offset])
+        } else {
+            None
+        }
+    }
+
     /// Returns a mutable reference to the data at the given index in the [`SegVec`][crate::SegVec],
     /// if it exists.
     ///
@@ -251,6 +272,17 @@ impl<T, C: MemConfig> SegVec<T, C> {
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index < self.len {
             let (seg, offset) = C::segment_and_offset(index);
+            Some(&mut self.segments[seg][offset])
+        } else {
+            None
+        }
+    }
+
+    /// Same as [`SegVec::get_mut`] but takes an additional [`SegmentCache`] reference to
+    /// improve index calculations.
+    pub fn get_mut_cached(&mut self, index: usize, cache: &mut SegmentCache<C>) -> Option<&mut T> {
+        if index < self.len {
+            let (seg, offset) = cache.segment_and_offset(index);
             Some(&mut self.segments[seg][offset])
         } else {
             None
@@ -275,6 +307,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
         self.len += 1;
     }
 
+    /// Same as [`SegVec::push`] but takes an additional [`SegmentCache`] reference to
+    /// improve index calculations.
     pub fn push_cached(&mut self, val: T, cache: &mut SegmentCache<C>) {
         self.reserve_cached(1, cache);
         let seg = cache.segment(self.len);
@@ -305,6 +339,22 @@ impl<T, C: MemConfig> SegVec<T, C> {
         }
     }
 
+    /// Same as [`SegVec::pop`] but takes an additional [`SegmentCache`] reference to
+    /// improve index calculations.
+    pub fn pop_cached(&mut self, cache: &mut SegmentCache<C>) -> Option<T> {
+        match self.len {
+            0 => None,
+            size => {
+                let (seg, offset) = cache.segment_and_offset(size);
+                self.len -= 1;
+                match offset {
+                    0 => self.segments[seg - 1].pop(),
+                    _ => self.segments[seg].pop(),
+                }
+            }
+        }
+    }
+
     /// Truncates the [`SegVec`][crate::SegVec] to the given length.
     /// If the given length is larger than the current length, this is a no-op.
     /// Otherwise, the capacity is reduced and any excess elements are dropped.
@@ -323,6 +373,24 @@ impl<T, C: MemConfig> SegVec<T, C> {
     pub fn truncate(&mut self, len: usize) {
         if len < self.capacity() {
             let (seg, offset) = C::segment_and_offset(len);
+            if offset == 0 {
+                self.segments.drain(seg..);
+            } else {
+                if len < self.len {
+                    self.segments[seg].drain(offset..);
+                }
+                self.segments.drain(seg + 1..);
+            }
+            self.len = len;
+            self.capacity = self.capacity();
+        }
+    }
+
+    /// Same as [`SegVec::truncate`] but takes an additional [`SegmentCache`] reference to
+    /// improve index calculations.
+    pub fn truncate_cached(&mut self, len: usize, cache: &mut SegmentCache<C>) {
+        if len < self.capacity() {
+            let (seg, offset) = cache.segment_and_offset(len);
             if offset == 0 {
                 self.segments.drain(seg..);
             } else {
@@ -366,6 +434,22 @@ impl<T, C: MemConfig> SegVec<T, C> {
         }
     }
 
+    /// Same as [`SegVec::resize_with`] but takes an additional [`SegmentCache`] reference to
+    /// improve index calculations.
+    pub fn resize_with_cached<F>(&mut self, new_len: usize, f: F, cache: &mut SegmentCache<C>)
+    where
+        F: FnMut() -> T,
+    {
+        let cur_len = self.len();
+        if new_len > cur_len {
+            let to_add = new_len - cur_len;
+            //TODO: self.extend_cached(std::iter::repeat_with(f).take(to_add), cache);
+            self.extend(std::iter::repeat_with(f).take(to_add));
+        } else if new_len < cur_len {
+            self.truncate_cached(new_len, cache);
+        }
+    }
+
     /// Resizes the [`SegVec`][crate::SegVec] so that the length is equal to `new_len`.
     ///
     /// If `new_len` is greater than `len`, the `SegVec` is extended by the difference, with each additional slot filled with the result of calling the `clone` on `val`.
@@ -390,6 +474,22 @@ impl<T, C: MemConfig> SegVec<T, C> {
             self.extend(std::iter::repeat(val).take(to_add));
         } else if new_len < cur_len {
             self.truncate(new_len);
+        }
+    }
+
+    /// Same as [`SegVec::resize`] but takes an additional [`SegmentCache`] reference to
+    /// improve index calculations.
+    pub fn resize_cached(&mut self, new_len: usize, val: T, cache: &mut SegmentCache<C>)
+    where
+        T: Clone,
+    {
+        let cur_len = self.len();
+        if new_len > cur_len {
+            let to_add = new_len - cur_len;
+            // TODO: self.extend_cached(std::iter::repeat(val).take(to_add), cache);
+            self.extend(std::iter::repeat(val).take(to_add));
+        } else if new_len < cur_len {
+            self.truncate_cached(new_len, cache);
         }
     }
 

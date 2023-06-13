@@ -23,6 +23,14 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             }
         });
     });
+    group.bench_function("Proportional<1>", |b| {
+        b.iter_with_large_drop(|| {
+            let mut v: SegVec<i32, Proportional<1>> = SegVec::with_capacity(0);
+            for i in 0..N {
+                v.push(black_box(i));
+            }
+        });
+    });
     group.bench_function("Linear<1024>", |b| {
         b.iter_with_large_drop(|| {
             let mut v: SegVec<i32, Linear> = SegVec::with_capacity(0);

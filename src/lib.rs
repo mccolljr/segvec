@@ -90,7 +90,6 @@ use std::ops::{Bound, Index, IndexMut, RangeBounds};
 ///   The fastest. But wastes memory when only few elements are expected (<500).
 pub struct SegVec<T, C: MemConfig = Exponential<1>> {
     len: usize,
-    capacity: usize,
     segments: detail::Segments<T>,
     config: C,
 }
@@ -109,7 +108,6 @@ impl<T, C: MemConfig> SegVec<T, C> {
         C::debug_assert_config();
         SegVec {
             len: 0,
-            capacity: 0,
             segments: detail::Segments::new(),
             config: C::new(),
         }
@@ -192,7 +190,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
             Some(c) => c,
             None => capacity_overflow(),
         };
-        if min_cap > self.capacity {
+        if min_cap > self.capacity() {
             self.reserve_cold(min_cap);
         }
     }
@@ -205,7 +203,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
             let seg_size = self.config.segment_size(i);
             self.segments.push(detail::Segment::with_capacity(seg_size));
         }
-        self.capacity = self.capacity();
+        self.config.update_capacity(self.segments.len());
     }
 
     /// Returns a reference to the data at the given index in the [`SegVec`][crate::SegVec], if it
@@ -314,7 +312,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
                 self.segments.drain(seg + 1..);
             }
             self.len = len;
-            self.capacity = self.capacity();
+            self.config.update_capacity(self.segments.len());
         }
     }
 
@@ -794,7 +792,6 @@ impl<T: Clone, C: MemConfig> Clone for SegVec<T, C> {
     fn clone(&self) -> Self {
         SegVec {
             len: self.len,
-            capacity: self.capacity,
             segments: self.segments.clone(),
             config: C::new(),
         }

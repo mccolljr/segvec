@@ -24,6 +24,10 @@ pub trait MemConfig {
     /// Takes the number of allocated segments, returns the total capacity.
     fn capacity(&self, segments: usize) -> usize;
 
+    /// Updates the capacity to the given number of segments.
+    #[inline]
+    fn update_capacity(&mut self, _segments: usize) {}
+
     /// Returns the size of the nth segment (starting at 0).
     fn segment_size(&self, segment: usize) -> usize;
 
@@ -91,10 +95,13 @@ impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
 }
 
 /// Exponential growth, each subsequent segment is as big as the sum of all segments before.
-pub struct Exponential<const FACTOR: usize = 16>;
+pub struct Exponential<const FACTOR: usize = 16> {
+    capacity: usize,
+}
+
 impl<const FACTOR: usize> MemConfig for Exponential<FACTOR> {
     fn new() -> Self {
-        Self {}
+        Self { capacity: 0 }
     }
 
     #[track_caller]
@@ -103,12 +110,17 @@ impl<const FACTOR: usize> MemConfig for Exponential<FACTOR> {
     }
 
     #[inline]
-    fn capacity(&self, segments: usize) -> usize {
-        if segments == 0 {
+    fn capacity(&self, _segments: usize) -> usize {
+        self.capacity
+    }
+
+    #[inline]
+    fn update_capacity(&mut self, segments: usize) {
+        self.capacity = if segments == 0 {
             0
         } else {
             2_usize.pow(segments as u32 - 1) * FACTOR
-        }
+        };
     }
 
     #[inline]
@@ -266,7 +278,9 @@ pub fn exponential_capacity() {
     let capacities: &[usize] = &[0, 1, 2, 4, 8, 16, 32, 64];
 
     for i in 0..capacities.len() {
-        assert_eq!(Exponential::<1>::new().capacity(i), capacities[i])
+        let mut e = Exponential::<1>::new();
+        e.update_capacity(i);
+        assert_eq!(e.capacity(i), capacities[i])
     }
 }
 

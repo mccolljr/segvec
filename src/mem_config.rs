@@ -124,7 +124,7 @@ impl<const FACTOR: usize> MemConfig for Exponential<FACTOR> {
         }
 
         let segment = linear_segment.ilog2() as usize;
-        (segment + 1, index % (2_usize.pow(segment as u32) * FACTOR))
+        (segment + 1, index - (2_usize.pow(segment as u32) * FACTOR))
     }
 }
 

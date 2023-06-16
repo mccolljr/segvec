@@ -67,14 +67,28 @@ use std::ops::{Bound, Index, IndexMut, RangeBounds};
 /// This `FACTOR` should ideally be a power of two as this optimizes to much more efficient code.
 ///
 /// 1. [`Linear<FACTOR>`]
-///    All segments have the same size.
+///    All segments have the same size. This is the fastest when `FACTOR` is big enough. Consequently
+///    there is some memory overhead when only very few elements are stored. When a `SegVec` grows it
+///    will have the least memory overhead. When not given then `FACTOR` defaults to 1024.
 /// 2. [`Proportional<FACTOR>`]
 ///    Segments grow proportionally to their segment number `[FACTOR, 2*FACTOR, 3*FACTOR, ..]`.
+///    Unfortunately the math is somewhat expensive which makes this slow.
 /// 3. [`Exponential<FACTOR>`]
 ///    Segments grow exponentially to their segment number, each subsequent segment is as large as
 ///    the size of all preceeding segments `[FACTOR, FACTOR, 2*FACTOR, 4*FACTOR, 8*FACTOR, ..]`.
+///    `Exponential` is slightly wasteful with memory (up to 50% might be unused in the worst case).
+///    When not given then `FACTOR` defaults to 16.
 ///
-/// The default is `Exponential<1>` which should work for most cases.
+/// The default `MemConfig` is `Exponential<1>` which should work for most cases, especially when
+/// very few elements are frequently expected.
+///
+/// Altogether you get these three defaults:
+/// * `SegVec<T>`
+///   Use it when very few elements (less than 10) are frequently expected.
+/// * `SegVec<T, Exponential>`
+///   Good compromise when the expected number of elements can vary widely.
+/// * `SegVec<T, Linear>`
+///   The fastest. But wastes memory when only few elements are expected (<500).
 pub struct SegVec<T, C: MemConfig = Exponential<1>> {
     len: usize,
     capacity: usize,

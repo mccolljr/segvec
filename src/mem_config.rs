@@ -74,14 +74,9 @@ impl<const FACTOR: usize> MemConfig for Proportional<FACTOR> {
     #[inline]
     fn segment_and_offset(index: usize) -> (usize, usize) {
         let linear_segment = index / FACTOR;
-
         let segment = ((8 * linear_segment + 1).sqrt() - 1) / 2;
 
-        if segment == 0 {
-            (0, index)
-        } else {
-            (segment, index - Self::capacity(segment))
-        }
+        (segment, index - Self::capacity(segment))
     }
 }
 

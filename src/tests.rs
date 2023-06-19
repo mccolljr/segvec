@@ -398,6 +398,32 @@ fn test_slice_mut() {
 }
 
 #[test]
+fn test_segmented_iter() {
+    let mut v = SegVec::<i32, Exponential<1>>::new();
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+    assert_eq!(v.len(), 7);
+    assert_eq!(v.capacity(), 8);
+
+    //TODO: assert_eq!(v.iter().size_hint(), (7, Some(7)));
+
+    let mut iter = v.slice(..).segmented_iter();
+    assert_eq!(iter.next().unwrap(), &[1]);
+    //TODO: assert_eq!(iter.size_hint(), (5, Some(5)));
+    assert_eq!(iter.next().unwrap(), &[2]);
+    //TODO: assert_eq!(iter.size_hint(), (3, Some(3)));
+    assert_eq!(iter.next().unwrap(), &[3, 4]);
+    assert_eq!(iter.next().unwrap(), &[5, 6, 7]);
+    //TODO: assert_eq!(iter.size_hint(), (1, Some(1)));
+    //TODO: assert_eq!(iter.size_hint(), (0, Some(0)));
+}
+
+#[test]
 fn test_sort() {
     let mut rng = rand::thread_rng();
     for i in 0..1000usize {

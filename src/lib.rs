@@ -1014,9 +1014,33 @@ impl<'a, T, C: MemConfig> Drop for Drain<'a, T, C> {
     }
 }
 
+// Extends Index<> with methods to get segments and (segment,offset) tuples
+trait SegmentIndex<T>: Index<usize, Output = T> {
+    fn index(&self, i: usize) -> &T;
+    fn segment_and_offset(&self, i: usize) -> (usize, usize);
+    fn segment(&self, i: usize) -> &[T];
+}
+
+impl<T, C: MemConfig> SegmentIndex<T> for SegVec<T, C> {
+    #[inline]
+    fn index(&self, i: usize) -> &T {
+        Index::index(self, i)
+    }
+
+    #[inline]
+    fn segment_and_offset(&self, i: usize) -> (usize, usize) {
+        self.config.segment_and_offset(i)
+    }
+
+    #[inline]
+    fn segment(&self, i: usize) -> &[T] {
+        &self.segments[i]
+    }
+}
+
 /// Provides an immutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct Slice<'a, T: 'a> {
-    inner: &'a (dyn Index<usize, Output = T>),
+    inner: &'a (dyn SegmentIndex<T>),
     start: usize,
     len: usize,
 }
@@ -1049,6 +1073,20 @@ impl<'a, T: 'a> Slice<'a, T> {
             index: 0,
         }
     }
+
+    /// Returns an iterator over immutable references slices of elements of the
+    /// [`Slice`][crate::Slice].
+    pub fn segmented_iter(&self) -> SegmentedIter<'a, T> {
+        let start = self.inner.segment_and_offset(self.start);
+        let end = self.inner.segment_and_offset(self.start + self.len - 1);
+
+        SegmentedIter {
+            slice: *self,
+            start,
+            end,
+            segment_index: start.0,
+        }
+    }
 }
 
 impl<'a, T: 'a> Index<usize> for Slice<'a, T> {
@@ -1056,7 +1094,7 @@ impl<'a, T: 'a> Index<usize> for Slice<'a, T> {
 
     fn index(&self, index: usize) -> &'a Self::Output {
         match slice_index_to_base_index(self.start, index, self.len) {
-            Some(idx) => self.inner.index(idx),
+            Some(idx) => SegmentIndex::index(self.inner, idx),
             _ => index_oob("Slice::index", index, self.len),
         }
     }
@@ -1103,6 +1141,54 @@ impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
 
 impl<'a, T: 'a> FusedIterator for SliceIter<'a, T> {}
 impl<'a, T: 'a> ExactSizeIterator for SliceIter<'a, T> {}
+
+/// Iterator over immutable references to slices of the elements of a [`Slice`][crate::Slice].
+pub struct SegmentedIter<'a, T: 'a> {
+    slice: Slice<'a, T>,
+    start: (usize, usize),
+    end: (usize, usize),
+    segment_index: usize,
+}
+
+impl<'a, T: 'a> Iterator for SegmentedIter<'a, T> {
+    type Item = &'a [T];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // We never return a empty slice
+        if self.slice.len == 0 || self.segment_index > self.end.0 {
+            return None;
+        }
+
+        let ret = if self.segment_index == self.start.0 {
+            // first segment
+            if self.start.0 == self.end.0 {
+                // start and end are in the same segment
+                &self.slice.inner.segment(self.segment_index)[self.start.1..=self.end.1]
+            } else {
+                // from start to end of first segment
+                &self.slice.inner.segment(self.segment_index)[self.start.1..]
+            }
+        } else if self.segment_index == self.end.0 {
+            //last segment
+            &self.slice.inner.segment(self.segment_index)[..=self.end.1]
+        } else {
+            // some segment in between
+            &self.slice.inner.segment(self.segment_index)
+        };
+
+        self.segment_index += 1;
+        Some(ret)
+    }
+
+    // TODO:
+    // fn size_hint(&self) -> (usize, Option<usize>) {
+    //     let left = self.slice.len - self.index;
+    //     (left, Some(left))
+    // }
+}
+
+impl<'a, T: 'a> FusedIterator for SegmentedIter<'a, T> {}
+impl<'a, T: 'a> ExactSizeIterator for SegmentedIter<'a, T> {}
 
 /// Provides a mutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct SliceMut<'a, T: 'a> {

@@ -20,6 +20,20 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         v.push(fast_prng(&mut r) as usize);
     }
 
+    group.bench_function("full segvec iteration", |b| {
+        b.iter(|| {
+            let mut iterator = v.iter();
+            while black_box(iterator.next().is_some()) {}
+        });
+    });
+
+    group.bench_function("full slice iteration", |b| {
+        b.iter(|| {
+            let mut iterator = v.slice(..).iter();
+            while black_box(iterator.next().is_some()) {}
+        });
+    });
+
     let slice = v.slice(100..9000);
     let l = slice.len();
 

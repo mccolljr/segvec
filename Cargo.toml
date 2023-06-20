@@ -24,3 +24,7 @@ thin-segments = ["thin-vec"]
 [[bench]]
 name = "segvec_benchmark"
 harness = false
+
+[[bench]]
+name = "segvec_benchmark2"
+harness = false

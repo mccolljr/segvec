@@ -53,7 +53,6 @@ use std::default::Default;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::{FromIterator, FusedIterator};
-use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Bound, Index, IndexMut, RangeBounds};
 
@@ -91,9 +90,8 @@ use std::ops::{Bound, Index, IndexMut, RangeBounds};
 ///   The fastest. But wastes memory when only few elements are expected (<500).
 pub struct SegVec<T, C: MemConfig = Exponential<1>> {
     len: usize,
-    capacity: usize,
     segments: detail::Segments<T>,
-    _config: PhantomData<C>,
+    config: C,
 }
 
 impl<T, C: MemConfig> SegVec<T, C> {
@@ -110,9 +108,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
         C::debug_assert_config();
         SegVec {
             len: 0,
-            capacity: 0,
             segments: detail::Segments::new(),
-            _config: PhantomData,
+            config: C::new(),
         }
     }
 
@@ -170,7 +167,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     /// ```
     #[inline]
     pub fn capacity(&self) -> usize {
-        C::capacity(self.segments.len())
+        self.config.capacity(self.segments.len())
     }
 
     /// Reserve enough capacity to insert the given number of elements into the
@@ -193,7 +190,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
             Some(c) => c,
             None => capacity_overflow(),
         };
-        if min_cap > self.capacity {
+        if min_cap > self.capacity() {
             self.reserve_cold(min_cap);
         }
     }
@@ -201,12 +198,12 @@ impl<T, C: MemConfig> SegVec<T, C> {
     // do the real reserving in a cold path
     #[cold]
     fn reserve_cold(&mut self, min_cap: usize) {
-        let (segment, _) = C::segment_and_offset(min_cap - 1);
+        let (segment, _) = self.config.segment_and_offset(min_cap - 1);
         for i in self.segments.len()..=segment {
-            let seg_size = C::segment_size(i);
+            let seg_size = self.config.segment_size(i);
             self.segments.push(detail::Segment::with_capacity(seg_size));
         }
-        self.capacity = self.capacity();
+        self.config.update_capacity(self.segments.len());
     }
 
     /// Returns a reference to the data at the given index in the [`SegVec`][crate::SegVec], if it
@@ -221,7 +218,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     /// ```
     pub fn get(&self, index: usize) -> Option<&T> {
         if index < self.len {
-            let (seg, offset) = C::segment_and_offset(index);
+            let (seg, offset) = self.config.segment_and_offset(index);
             Some(&self.segments[seg][offset])
         } else {
             None
@@ -240,7 +237,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     /// ```
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index < self.len {
-            let (seg, offset) = C::segment_and_offset(index);
+            let (seg, offset) = self.config.segment_and_offset(index);
             Some(&mut self.segments[seg][offset])
         } else {
             None
@@ -260,7 +257,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     /// - If the required capacity overflows `usize`
     pub fn push(&mut self, val: T) {
         self.reserve(1);
-        let (seg, _) = C::segment_and_offset(self.len);
+        let (seg, _) = self.config.segment_and_offset(self.len);
         self.segments[seg].push(val);
         self.len += 1;
     }
@@ -278,7 +275,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
         match self.len {
             0 => None,
             size => {
-                let (seg, offset) = C::segment_and_offset(size);
+                let (seg, offset) = self.config.segment_and_offset(size);
                 self.len -= 1;
                 match offset {
                     0 => self.segments[seg - 1].pop(),
@@ -305,7 +302,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     /// ```
     pub fn truncate(&mut self, len: usize) {
         if len < self.capacity() {
-            let (seg, offset) = C::segment_and_offset(len);
+            let (seg, offset) = self.config.segment_and_offset(len);
             if offset == 0 {
                 self.segments.drain(seg..);
             } else {
@@ -315,7 +312,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
                 self.segments.drain(seg + 1..);
             }
             self.len = len;
-            self.capacity = self.capacity();
+            self.config.update_capacity(self.segments.len());
         }
     }
 
@@ -423,7 +420,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
             return;
         }
         self.reserve(1);
-        let (mut seg_idx, mut seg_offset) = C::segment_and_offset(index);
+        let (mut seg_idx, mut seg_offset) = self.config.segment_and_offset(index);
         let mut displaced = val;
         loop {
             let maybe_displaced = unsafe {
@@ -495,7 +492,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
         if mem::size_of::<T>() == 0 {
             return self.pop().unwrap();
         }
-        let (mut seg_idx, seg_offset) = C::segment_and_offset(index);
+        let (mut seg_idx, seg_offset) = self.config.segment_and_offset(index);
         // SAFETY:
         // At this point, it is known that index points to a valid, non-zero-sized T in
         // the structure, and so it is safe to read a value of type T from this location
@@ -795,9 +792,8 @@ impl<T: Clone, C: MemConfig> Clone for SegVec<T, C> {
     fn clone(&self) -> Self {
         SegVec {
             len: self.len,
-            capacity: self.capacity,
             segments: self.segments.clone(),
-            _config: PhantomData,
+            config: C::new(),
         }
     }
 }

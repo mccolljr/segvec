@@ -378,6 +378,51 @@ fn test_slice() {
 }
 
 #[test]
+fn test_subslice() {
+    let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+    v.push(8);
+    let slice = v.slice(..);
+    assert_eq!(
+        slice.iter().copied().collect::<Vec<_>>(),
+        vec![1, 2, 3, 4, 5, 6, 7, 8]
+    );
+
+    let subslice = slice.slice(2..5);
+    assert_eq!(subslice.iter().copied().collect::<Vec<_>>(), vec![3, 4, 5]);
+
+    let subslice = slice.slice(..5);
+    assert_eq!(
+        subslice.iter().copied().collect::<Vec<_>>(),
+        vec![1, 2, 3, 4, 5]
+    );
+
+    let subslice = slice.slice(2..);
+    assert_eq!(
+        subslice.iter().copied().collect::<Vec<_>>(),
+        vec![3, 4, 5, 6, 7, 8]
+    );
+
+    let subslice = slice.slice(2..=5);
+    assert_eq!(
+        subslice.iter().copied().collect::<Vec<_>>(),
+        vec![3, 4, 5, 6]
+    );
+
+    let subslice = slice.slice(..);
+    assert_eq!(
+        subslice.iter().copied().collect::<Vec<_>>(),
+        vec![1, 2, 3, 4, 5, 6, 7, 8]
+    );
+}
+
+#[test]
 fn test_slice_mut() {
     let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
     v.push(1);

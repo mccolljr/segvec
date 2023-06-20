@@ -573,7 +573,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     where
         R: RangeBounds<usize>,
     {
-        let (start, end) = self.bounds("SegVec::drain", range);
+        let (start, end) = bounds(self.len, "SegVec::drain", range);
         Drain {
             inner: self,
             drained: 0,
@@ -600,7 +600,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     where
         R: RangeBounds<usize>,
     {
-        let (start, end) = self.bounds("SegVec::slice", range);
+        let (start, end) = bounds(self.len, "SegVec::slice", range);
         Slice {
             inner: self,
             start,
@@ -628,7 +628,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     where
         R: RangeBounds<usize>,
     {
-        let (start, end) = self.bounds("SegVec::slice_mut", range);
+        let (start, end) = bounds(self.len, "SegVec::slice_mut", range);
         SliceMut {
             inner: self,
             start,
@@ -751,34 +751,6 @@ impl<T, C: MemConfig> SegVec<T, C> {
             //    from valid references to some element T in the structure.
             unsafe { std::ptr::swap(a_ptr, b_ptr) };
         }
-    }
-
-    fn bounds<R>(&self, caller: &str, range: R) -> (usize, usize)
-    where
-        R: RangeBounds<usize>,
-    {
-        let size = self.len;
-        let start = range.start_bound();
-        let start = match start {
-            Bound::Included(&start) => start,
-            Bound::Excluded(start) => start.checked_add(1).expect("start bound fits into usize"),
-            Bound::Unbounded => 0,
-        };
-
-        let end = range.end_bound();
-        let end = match end {
-            Bound::Included(end) => end.checked_add(1).expect("end bound fits into usize"),
-            Bound::Excluded(&end) => end,
-            Bound::Unbounded => size,
-        };
-
-        if start > end {
-            panic!("{}: lower bound {} > upper bound {}", caller, start, end);
-        }
-        if end > size {
-            index_oob(caller, end, size);
-        }
-        (start, end)
     }
 }
 
@@ -1095,6 +1067,21 @@ impl<'a, T: 'a> Slice<'a, T> {
             segment_index: start.0,
         }
     }
+
+    /// Sub-slices an existing slice, returns a new [`Slice`][crate::Slice] covering the given
+    /// `range`.
+    ///
+    /// # Panics
+    /// - If the end index is greater than `self.len()`
+    /// - If the start index is greater than the end index.
+    pub fn slice<R: RangeBounds<usize>>(&self, range: R) -> Self {
+        let (start, end) = bounds(self.len, "Slice::subslice", range);
+        Slice {
+            inner: self.inner,
+            start: self.start + start,
+            len: end - start,
+        }
+    }
 }
 
 impl<'a, T: 'a> Index<usize> for Slice<'a, T> {
@@ -1302,4 +1289,31 @@ fn index_oob(caller: &str, idx: usize, len: usize) -> ! {
         "{}: index out of bounds: index is {}, len is {}",
         caller, idx, len
     )
+}
+
+fn bounds<R>(len: usize, caller: &str, range: R) -> (usize, usize)
+where
+    R: RangeBounds<usize>,
+{
+    let start = range.start_bound();
+    let start = match start {
+        Bound::Included(&start) => start,
+        Bound::Excluded(start) => start.checked_add(1).expect("start bound fits into usize"),
+        Bound::Unbounded => 0,
+    };
+
+    let end = range.end_bound();
+    let end = match end {
+        Bound::Included(end) => end.checked_add(1).expect("end bound fits into usize"),
+        Bound::Excluded(&end) => end,
+        Bound::Unbounded => len,
+    };
+
+    if start > end {
+        panic!("{}: lower bound {} > upper bound {}", caller, start, end);
+    }
+    if end > len {
+        index_oob(caller, end, len);
+    }
+    (start, end)
 }

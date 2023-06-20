@@ -1128,6 +1128,7 @@ pub struct SliceIter<'a, T: 'a> {
 impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
     type Item = &'a T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.index += 1;
         self.iter.next()

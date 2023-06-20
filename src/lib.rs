@@ -52,7 +52,7 @@ use std::cmp;
 use std::default::Default;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::iter::{FromIterator, FusedIterator};
+use std::iter::{Flatten, FromIterator, FusedIterator};
 use std::mem;
 use std::ops::{Bound, Index, IndexMut, RangeBounds};
 
@@ -1069,7 +1069,8 @@ impl<'a, T: 'a> Slice<'a, T> {
     /// [`Slice`][crate::Slice].
     pub fn iter(&self) -> SliceIter<'a, T> {
         SliceIter {
-            slice: *self,
+            iter: self.segmented_iter().flatten(),
+            len: self.len,
             index: 0,
         }
     }
@@ -1078,7 +1079,14 @@ impl<'a, T: 'a> Slice<'a, T> {
     /// [`Slice`][crate::Slice].
     pub fn segmented_iter(&self) -> SegmentedIter<'a, T> {
         let start = self.inner.segment_and_offset(self.start);
-        let end = self.inner.segment_and_offset(self.start + self.len - 1);
+        // The 'end' is inclusive because we don't want to spill into the next segment. For an
+        // empty slice we have to prevent integer underflow, we just store a (0,0), this will
+        // not be used later since len is checked first to be not zero.
+        let end = if self.len > 0 {
+            self.inner.segment_and_offset(self.start + self.len - 1)
+        } else {
+            (0, 0)
+        };
 
         SegmentedIter {
             slice: *self,
@@ -1111,7 +1119,9 @@ impl<'a, T: 'a> IntoIterator for Slice<'a, T> {
 
 /// Iterator over immutable references to the elements of a [`Slice`][crate::Slice].
 pub struct SliceIter<'a, T: 'a> {
-    slice: Slice<'a, T>,
+    iter: Flatten<SegmentedIter<'a, T>>,
+    // Since Flatten is opaque we have to do our own accounting for size_hint here.
+    len: usize,
     index: usize,
 }
 
@@ -1119,22 +1129,12 @@ impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.slice.len {
-            let index = self.index;
-            self.index += 1;
-            // SAFETY:
-            // 1. index corresponds to a valid value in the slice
-            // 2. the value at index must live for at least the lifetime 'a
-            // 3. from #1+2, it is known that a taking an &'a to the value in the
-            //    slice is safe
-            Some(unsafe { &*(self.slice.index(index) as *const T) })
-        } else {
-            None
-        }
+        self.index += 1;
+        self.iter.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let left = self.slice.len - self.index;
+        let left = self.len - self.index;
         (left, Some(left))
     }
 }
@@ -1180,11 +1180,10 @@ impl<'a, T: 'a> Iterator for SegmentedIter<'a, T> {
         Some(ret)
     }
 
-    // TODO:
-    // fn size_hint(&self) -> (usize, Option<usize>) {
-    //     let left = self.slice.len - self.index;
-    //     (left, Some(left))
-    // }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let left = 1 + self.end.0 - self.segment_index;
+        (left, Some(left))
+    }
 }
 
 impl<'a, T: 'a> FusedIterator for SegmentedIter<'a, T> {}

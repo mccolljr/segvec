@@ -28,3 +28,7 @@ harness = false
 [[bench]]
 name = "segvec_benchmark2"
 harness = false
+
+[[bench]]
+name = "slice_and_iter"
+harness = false

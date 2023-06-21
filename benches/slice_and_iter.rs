@@ -62,7 +62,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
         b.iter(|| {
             for _ in 0..N {
-                _ = black_box(v.get(fast_prng(&mut r) as usize % l));
+                _ = black_box(v.get(fast_prng(&mut r) as usize % 8900));
             }
         });
     });

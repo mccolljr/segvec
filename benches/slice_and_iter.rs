@@ -14,26 +14,25 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("slice");
 
-    let mut v: Vec<usize> = Vec::new();
-    let mut r = 0xf00ba;
-    for _ in 0..10000 {
-        v.push(fast_prng(&mut r) as usize);
-    }
-
     group.bench_function("full Vec iteration", |b| {
+        let mut v: Vec<usize> = Vec::new();
+        let mut r = 0xf00ba;
+        for _ in 0..10000 {
+            v.push(fast_prng(&mut r) as usize);
+        }
         b.iter(|| {
             let mut iterator = v.iter();
             while black_box(iterator.next().is_some()) {}
         });
     });
 
-    let mut v: SegVec<usize> = SegVec::new();
-    let mut r = 0xf00ba;
-    for _ in 0..10000 {
-        v.push(fast_prng(&mut r) as usize);
-    }
-
     group.bench_function("full segvec iteration", |b| {
+        let mut v: SegVec<usize> = SegVec::new();
+        let mut r = 0xf00ba;
+        for _ in 0..10000 {
+            v.push(fast_prng(&mut r) as usize);
+        }
+
         b.iter(|| {
             let mut iterator = v.iter();
             while black_box(iterator.next().is_some()) {}
@@ -41,16 +40,26 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
 
     group.bench_function("full slice iteration", |b| {
+        let mut v: SegVec<usize> = SegVec::new();
+        let mut r = 0xf00ba;
+        for _ in 0..10000 {
+            v.push(fast_prng(&mut r) as usize);
+        }
+
         b.iter(|| {
             let mut iterator = v.slice(..).iter();
             while black_box(iterator.next().is_some()) {}
         });
     });
 
-    let slice = v.slice(100..9000);
-    let l = slice.len();
-
     group.bench_function("slice iteration", |b| {
+        let mut v: SegVec<usize> = SegVec::new();
+        let mut r = 0xf00ba;
+        for _ in 0..10000 {
+            v.push(fast_prng(&mut r) as usize);
+        }
+
+        let slice = v.slice(100..9000);
         b.iter(|| {
             let mut iterator = slice.iter();
             while black_box(iterator.next().is_some()) {}
@@ -58,6 +67,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
 
     group.bench_function("slice indexing", |b| {
+        let mut v: SegVec<usize> = SegVec::new();
+        let mut r = 0xf00ba;
+        for _ in 0..10000 {
+            v.push(fast_prng(&mut r) as usize);
+        }
         let mut r = 0xbaf00;
 
         b.iter(|| {

@@ -14,6 +14,19 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("slice");
 
+    let mut v: Vec<usize> = Vec::new();
+    let mut r = 0xf00ba;
+    for _ in 0..10000 {
+        v.push(fast_prng(&mut r) as usize);
+    }
+
+    group.bench_function("full Vec iteration", |b| {
+        b.iter(|| {
+            let mut iterator = v.iter();
+            while black_box(iterator.next().is_some()) {}
+        });
+    });
+
     let mut v: SegVec<usize> = SegVec::new();
     let mut r = 0xf00ba;
     for _ in 0..10000 {

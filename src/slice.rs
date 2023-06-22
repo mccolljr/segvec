@@ -38,7 +38,7 @@ impl<T, C: MemConfig> SegmentIndex<T> for SegVec<T, C> {
 
 /// Provides an immutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct Slice<'a, T: 'a> {
-    inner: &'a (dyn SegmentIndex<T>),
+    inner: &'a dyn SegmentIndex<T>,
     start: usize,
     len: usize,
 }
@@ -72,6 +72,12 @@ impl<'a, T: 'a> Slice<'a, T> {
     #[inline]
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// Returns true when a slice is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     /// Returns an iterator over immutable references to the elements of the
@@ -111,7 +117,7 @@ impl<'a, T: 'a> Slice<'a, T> {
     /// - If the end index is greater than `self.len()`
     /// - If the start index is greater than the end index.
     pub fn slice<R: RangeBounds<usize>>(&self, range: R) -> Self {
-        let (start, end) = bounds(self.len, "Slice::subslice", range);
+        let (start, end) = bounds(self.len, "Slice::slice", range);
         Slice {
             inner: self.inner,
             start: self.start + start,
@@ -241,6 +247,7 @@ impl<'a, T> DoubleEndedIterator for SegmentedIter<'a, T> {
         Some(ret)
     }
 }
+
 
 /// Provides a mutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct SliceMut<'a, T: 'a> {

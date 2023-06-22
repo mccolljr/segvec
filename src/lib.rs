@@ -980,30 +980,6 @@ impl<'a, T, C: MemConfig> Drop for Drain<'a, T, C> {
     }
 }
 
-// Extends Index<> with methods to get segments and (segment,offset) tuples
-trait SegmentIndex<T>: Index<usize, Output = T> {
-    fn index(&self, i: usize) -> &T;
-    fn segment_and_offset(&self, i: usize) -> (usize, usize);
-    fn segment(&self, i: usize) -> &[T];
-}
-
-impl<T, C: MemConfig> SegmentIndex<T> for SegVec<T, C> {
-    #[inline]
-    fn index(&self, i: usize) -> &T {
-        Index::index(self, i)
-    }
-
-    #[inline]
-    fn segment_and_offset(&self, i: usize) -> (usize, usize) {
-        self.config.segment_and_offset(i)
-    }
-
-    #[inline]
-    fn segment(&self, i: usize) -> &[T] {
-        &self.segments[i]
-    }
-}
-
 /// Returns the highest power of 2 that is less than or equal to `v` when `v` is non-zero.
 /// If `v` is zero, `None` is returned.
 #[cfg(test)]

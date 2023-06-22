@@ -1155,7 +1155,7 @@ impl<'a, T: 'a> Iterator for SegmentedIter<'a, T> {
     type Item = &'a [T];
 
     fn next(&mut self) -> Option<Self::Item> {
-        // We never return a empty slice
+        // We never return an empty slice
         if self.slice.len == 0 || self.start.0 > self.end.0 {
             return None;
         }
@@ -1180,7 +1180,7 @@ impl<'a, T: 'a> ExactSizeIterator for SegmentedIter<'a, T> {}
 
 impl<'a, T> DoubleEndedIterator for SegmentedIter<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        // We never return a empty slice
+        // We never return an empty slice
         if self.slice.len == 0 || self.start.0 > self.end.0 {
             return None;
         }
@@ -1190,13 +1190,15 @@ impl<'a, T> DoubleEndedIterator for SegmentedIter<'a, T> {
         } else {
             &self.slice.inner.segment(self.end.0)[..=self.end.1]
         };
+        // need to be careful not to underflow self.end.0 when done.
         if self.end.0 != 0 {
             self.end = (
                 self.end.0 - 1,
                 self.slice.inner.segment(self.end.0 - 1).len() - 1,
             );
         } else {
-            self.start = (self.start.0 + 1, 0);
+            // with start.0 > end.0 the iterator is flagged as 'done'
+            self.start = (1, 0);
         }
         Some(ret)
     }

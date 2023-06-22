@@ -493,27 +493,25 @@ fn test_slice_iter() {
         s.iter().copied().collect::<Vec<_>>(),
         vec![1, 2, 3, 4, 5, 6, 7]
     );
-    // PLANNED: DoubleEndedIterator for SliceIter
-    // assert_eq!(
-    //     s.iter().rev().copied().collect::<Vec<_>>(),
-    //     vec![7, 6, 5, 4, 3, 2, 1]
-    // );
+    assert_eq!(
+        s.iter().rev().copied().collect::<Vec<_>>(),
+        vec![7, 6, 5, 4, 3, 2, 1]
+    );
 
     let mut iter = s.iter();
     assert_eq!(iter.next().unwrap(), &1);
-    // PLANNED: assert_eq!(iter.next_back().unwrap(), &7);
-    assert_eq!(iter.size_hint(), (6, Some(6)));
-    assert_eq!(iter.next().unwrap(), &2);
-    // PLANNED: assert_eq!(iter.next_back().unwrap(), &6);
+    assert_eq!(iter.next_back().unwrap(), &7);
     assert_eq!(iter.size_hint(), (5, Some(5)));
+    assert_eq!(iter.next().unwrap(), &2);
+    assert_eq!(iter.next_back().unwrap(), &6);
+    assert_eq!(iter.size_hint(), (3, Some(3)));
     assert_eq!(iter.next().unwrap(), &3);
-    // PLANNED: assert_eq!(iter.next_back().unwrap(), &5);
-    assert_eq!(iter.size_hint(), (4, Some(4)));
-    // PLANNED: assert_eq!(iter.next_back().unwrap(), &4);
-    //assert_eq!(iter.size_hint(), (0, Some(0)));
+    assert_eq!(iter.next_back().unwrap(), &5);
+    assert_eq!(iter.size_hint(), (1, Some(1)));
+    assert_eq!(iter.next_back().unwrap(), &4);
+    assert_eq!(iter.size_hint(), (0, Some(0)));
 
     assert_eq!(s.len(), 7);
-    // PLANNED: assert_eq!(v.capacity(), 8);
 }
 
 #[test]

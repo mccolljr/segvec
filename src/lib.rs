@@ -1041,12 +1041,12 @@ impl<'a, T: 'a> Slice<'a, T> {
     pub fn iter(&self) -> SliceIter<'a, T> {
         SliceIter {
             iter: self.segmented_iter().flatten(),
-            len: self.len,
-            index: 0,
+            start: 0,
+            end: self.len,
         }
     }
 
-    /// Returns an iterator over immutable references slices of elements of the
+    /// Returns an iterator over immutable references of slices of elements of the
     /// [`Slice`][crate::Slice].
     pub fn segmented_iter(&self) -> SegmentedIter<'a, T> {
         let start = self.inner.segment_and_offset(self.start);
@@ -1106,8 +1106,8 @@ impl<'a, T: 'a> IntoIterator for Slice<'a, T> {
 pub struct SliceIter<'a, T: 'a> {
     iter: Flatten<SegmentedIter<'a, T>>,
     // Since Flatten is opaque we have to do our own accounting for size_hint here.
-    len: usize,
-    index: usize,
+    start: usize,
+    end: usize,
 }
 
 impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
@@ -1115,18 +1115,34 @@ impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.index += 1;
-        self.iter.next()
+        if self.end > self.start {
+            self.start += 1;
+            self.iter.next()
+        } else {
+            None
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let left = self.len - self.index;
+        let left = self.end - self.start;
         (left, Some(left))
     }
 }
 
 impl<'a, T: 'a> FusedIterator for SliceIter<'a, T> {}
 impl<'a, T: 'a> ExactSizeIterator for SliceIter<'a, T> {}
+
+impl<'a, T> DoubleEndedIterator for SliceIter<'a, T> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.end > self.start {
+            self.end -= 1;
+            self.iter.next_back()
+        } else {
+            None
+        }
+    }
+}
 
 /// Iterator over immutable references to slices of the elements of a [`Slice`][crate::Slice].
 pub struct SegmentedIter<'a, T: 'a> {

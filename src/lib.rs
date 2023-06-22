@@ -1063,7 +1063,6 @@ impl<'a, T: 'a> Slice<'a, T> {
             slice: *self,
             start,
             end,
-            segment_index: start.0,
         }
     }
 
@@ -1134,7 +1133,6 @@ pub struct SegmentedIter<'a, T: 'a> {
     slice: Slice<'a, T>,
     start: (usize, usize),
     end: (usize, usize),
-    segment_index: usize,
 }
 
 impl<'a, T: 'a> Iterator for SegmentedIter<'a, T> {
@@ -1142,33 +1140,21 @@ impl<'a, T: 'a> Iterator for SegmentedIter<'a, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         // We never return a empty slice
-        if self.slice.len == 0 || self.segment_index > self.end.0 {
+        if self.slice.len == 0 || self.start.0 > self.end.0 {
             return None;
         }
 
-        let ret = if self.segment_index == self.start.0 {
-            // first segment
-            if self.start.0 == self.end.0 {
-                // start and end are in the same segment
-                &self.slice.inner.segment(self.segment_index)[self.start.1..=self.end.1]
-            } else {
-                // from start to end of first segment
-                &self.slice.inner.segment(self.segment_index)[self.start.1..]
-            }
-        } else if self.segment_index == self.end.0 {
-            //last segment
-            &self.slice.inner.segment(self.segment_index)[..=self.end.1]
+        let ret = if self.start.0 == self.end.0 {
+            &self.slice.inner.segment(self.start.0)[self.start.1..=self.end.1]
         } else {
-            // some segment in between
-            &self.slice.inner.segment(self.segment_index)
+            &self.slice.inner.segment(self.start.0)[self.start.1..]
         };
-
-        self.segment_index += 1;
+        self.start = (self.start.0 + 1, 0);
         Some(ret)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let left = 1 + self.end.0 - self.segment_index;
+        let left = 1 + self.end.0 - self.start.0;
         (left, Some(left))
     }
 }

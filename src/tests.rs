@@ -538,6 +538,12 @@ fn test_segmented_iter() {
     assert_eq!(iter.next().unwrap(), &[3, 4]);
     assert_eq!(iter.next().unwrap(), &[5, 6, 7]);
     assert_eq!(iter.size_hint(), (0, Some(0)));
+
+    let mut iter = v.slice(..).segmented_iter();
+    assert_eq!(iter.next_back().unwrap(), &[5, 6, 7]);
+    assert_eq!(iter.next_back().unwrap(), &[3, 4]);
+    assert_eq!(iter.next_back().unwrap(), &[2]);
+    assert_eq!(iter.next_back().unwrap(), &[1]);
 }
 
 #[test]

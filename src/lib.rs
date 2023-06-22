@@ -1162,6 +1162,30 @@ impl<'a, T: 'a> Iterator for SegmentedIter<'a, T> {
 impl<'a, T: 'a> FusedIterator for SegmentedIter<'a, T> {}
 impl<'a, T: 'a> ExactSizeIterator for SegmentedIter<'a, T> {}
 
+impl<'a, T> DoubleEndedIterator for SegmentedIter<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        // We never return a empty slice
+        if self.slice.len == 0 || self.start.0 > self.end.0 {
+            return None;
+        }
+
+        let ret = if self.start.0 == self.end.0 {
+            &self.slice.inner.segment(self.end.0)[self.start.1..=self.end.1]
+        } else {
+            &self.slice.inner.segment(self.end.0)[..=self.end.1]
+        };
+        if self.end.0 != 0 {
+            self.end = (
+                self.end.0 - 1,
+                self.slice.inner.segment(self.end.0 - 1).len() - 1,
+            );
+        } else {
+            self.start = (self.start.0 + 1, 0);
+        }
+        Some(ret)
+    }
+}
+
 /// Provides a mutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct SliceMut<'a, T: 'a> {
     inner: &'a mut dyn IndexMut<usize, Output = T>,

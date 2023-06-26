@@ -129,7 +129,7 @@ impl<'a, T: 'a> Slice<'a, T> {
 impl<'a, T: 'a> Index<usize> for Slice<'a, T> {
     type Output = T;
 
-    fn index(&self, index: usize) -> &'a Self::Output {
+    fn index(&self, index: usize) -> &Self::Output {
         match slice_index_to_base_index(self.start, index, self.len) {
             Some(idx) => SegmentIndex::index(self.inner, idx),
             _ => index_oob("Slice::index", index, self.len),

@@ -991,17 +991,6 @@ fn checked_log2_floor(v: usize) -> Option<u32> {
     }
 }
 
-fn slice_index_to_base_index(
-    start_idx: usize,
-    slice_idx: usize,
-    slice_len: usize,
-) -> Option<usize> {
-    match start_idx.checked_add(slice_idx) {
-        Some(idx) if idx - start_idx < slice_len => Some(idx),
-        _ => None,
-    }
-}
-
 #[cold]
 fn capacity_overflow() -> ! {
     panic!("SegVec: capacity overflow")

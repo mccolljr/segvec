@@ -377,6 +377,17 @@ fn test_slice() {
     assert_eq!(s6.iter().copied().collect::<Vec<i32>>(), vec![]);
 }
 
+// this must not compile
+// #[test]
+// fn test_slice_lifetime() {
+//     let mut v = SegVec::<i32>::new();
+//     v.push(1);
+//     let s = v.slice(..);
+//     // drop v while using s later
+//     drop(v);
+//     assert_eq!(s[0], 1);
+// }
+
 #[test]
 fn test_subslice() {
     let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
@@ -512,6 +523,23 @@ fn test_slice_iter() {
     assert_eq!(iter.size_hint(), (0, Some(0)));
 
     assert_eq!(s.len(), 7);
+}
+
+#[test]
+fn test_slice_into_iter() {
+    let mut v = SegVec::<i32, Exponential<1>>::new();
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+
+    let i = v.slice(..).into_iter();
+
+    assert_eq!(i.size_hint(), (7, Some(7)));
+    assert_eq!(i.copied().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5, 6, 7]);
 }
 
 #[test]

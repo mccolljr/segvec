@@ -22,7 +22,7 @@ impl<'a, T: Debug + 'a> Debug for Slice<'a, T> {
 }
 
 impl<'a, T: 'a> Slice<'a, T> {
-    // internal ctor
+    // private ctor
     #[inline]
     pub(crate) fn new(segvec: &'a dyn SegmentIndex<T>, start: usize, len: usize) -> Self {
         Slice {
@@ -106,14 +106,34 @@ impl<'a, T: 'a> IntoIterator for Slice<'a, T> {
     type Item = &'a T;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+        let start = self.inner.segment_and_offset(self.start);
+        // The 'end' is inclusive because we don't want to spill into the next segment. For an
+        // empty slice we have to prevent integer underflow, we just store a (0,0), this will
+        // not be used later since len is checked first to be not zero.
+        let end = if self.len > 0 {
+            self.inner.segment_and_offset(self.start + self.len - 1)
+        } else {
+            (0, 0)
+        };
+
+        let seg_iter = SegmentedIter {
+            slice: self,
+            start,
+            end,
+        };
+
+        SliceIter {
+            iter: seg_iter.flatten(),
+            start: 0,
+            end: self.len,
+        }
     }
 }
 
 /// Iterator over immutable references to the elements of a [`Slice`][crate::Slice].
 pub struct SliceIter<'a, T: 'a> {
     iter: Flatten<SegmentedIter<'a, T>>,
-    // Since Flatten is opaque we have to do our own accounting for size_hint here.
+    // Since Flatten's size_hint is not sufficient we have to do our own accounting here.
     start: usize,
     end: usize,
 }
@@ -140,7 +160,7 @@ impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
 impl<'a, T: 'a> FusedIterator for SliceIter<'a, T> {}
 impl<'a, T: 'a> ExactSizeIterator for SliceIter<'a, T> {}
 
-impl<'a, T> DoubleEndedIterator for SliceIter<'a, T> {
+impl<'a, T: 'a> DoubleEndedIterator for SliceIter<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.end > self.start {
@@ -186,7 +206,7 @@ impl<'a, T: 'a> Iterator for SegmentedIter<'a, T> {
 impl<'a, T: 'a> FusedIterator for SegmentedIter<'a, T> {}
 impl<'a, T: 'a> ExactSizeIterator for SegmentedIter<'a, T> {}
 
-impl<'a, T> DoubleEndedIterator for SegmentedIter<'a, T> {
+impl<'a, T: 'a> DoubleEndedIterator for SegmentedIter<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         // We never return an empty slice
         if self.slice.len == 0 || self.start.0 > self.end.0 {
@@ -211,7 +231,6 @@ impl<'a, T> DoubleEndedIterator for SegmentedIter<'a, T> {
         Some(ret)
     }
 }
-
 
 /// Provides a mutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct SliceMut<'a, T: 'a> {

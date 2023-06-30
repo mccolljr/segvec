@@ -48,8 +48,6 @@ pub mod detail {
 }
 
 use std::cmp;
-// TODO: unused yet use std::convert::TryFrom;
-use std::convert::From;
 use std::default::Default;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -853,20 +851,6 @@ impl<T, C: MemConfig> IntoIterator for SegVec<T, C> {
             size: self.len,
             iter: self.segments.into_iter().flatten(),
         }
-    }
-}
-
-/// Creates an new [`SegVec`][crate::SegVec] from a [`Slice`][crate::Slice].
-impl<T: Clone, C: MemConfig> From<Slice<'_, T>> for SegVec<T, C> {
-    fn from(slice: Slice<'_, T>) -> Self {
-        slice.iter().cloned().collect()
-    }
-}
-
-/// Creates an new [`SegVec`][crate::SegVec] from a reference to [`Slice`][crate::Slice].
-impl<T: Clone, C: MemConfig> From<&Slice<'_, T>> for SegVec<T, C> {
-    fn from(slice: &Slice<'_, T>) -> Self {
-        slice.iter().cloned().collect()
     }
 }
 

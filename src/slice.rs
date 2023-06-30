@@ -1,41 +1,5 @@
 use crate::*;
 
-/// Extends Index<> with methods to get segments and (segment,offset) tuples
-pub(crate) trait SegmentIndex<T>: Index<usize, Output = T> {
-    fn index(&self, i: usize) -> &T;
-    fn index_mut(&mut self, i: usize) -> &mut T;
-    fn segment_and_offset(&self, i: usize) -> (usize, usize);
-    fn segment(&self, i: usize) -> &[T];
-    fn segment_mut(&mut self, i: usize) -> &mut [T];
-}
-
-impl<T, C: MemConfig> SegmentIndex<T> for SegVec<T, C> {
-    #[inline]
-    fn index(&self, i: usize) -> &T {
-        Index::index(self, i)
-    }
-
-    #[inline]
-    fn index_mut(&mut self, i: usize) -> &mut T {
-        IndexMut::index_mut(self, i)
-    }
-
-    #[inline]
-    fn segment_and_offset(&self, i: usize) -> (usize, usize) {
-        self.config.segment_and_offset(i)
-    }
-
-    #[inline]
-    fn segment(&self, i: usize) -> &[T] {
-        &self.segments[i]
-    }
-
-    #[inline]
-    fn segment_mut(&mut self, i: usize) -> &mut [T] {
-        &mut self.segments[i]
-    }
-}
-
 /// Provides an immutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct Slice<'a, T: 'a> {
     inner: &'a dyn SegmentIndex<T>,
@@ -341,6 +305,59 @@ impl<'a, T: 'a> Iterator for SliceMutIter<'a, T> {
 
 impl<'a, T: 'a> FusedIterator for SliceMutIter<'a, T> {}
 impl<'a, T: 'a> ExactSizeIterator for SliceMutIter<'a, T> {}
+/// Extends Index<> with methods to get segments and (segment,offset) tuples
+pub(crate) trait SegmentIndex<T>: Index<usize, Output = T> {
+    fn index(&self, i: usize) -> &T;
+    fn segment_and_offset(&self, i: usize) -> (usize, usize);
+    fn segment(&self, i: usize) -> &[T];
+}
+
+/// Extends SegmentIndex<> with methods for mutable access.
+pub(crate) trait SegmentIndexMut<T>: SegmentIndex<T> + IndexMut<usize, Output = T> {
+    fn index_mut(&mut self, i: usize) -> &mut T;
+    fn segment_mut(&mut self, i: usize) -> &mut [T];
+
+    // Downcasts `&SegmentIndexMut<T>` to `&SegmentIndex<T>`
+    fn as_segment_index(&self) -> &dyn SegmentIndex<T>;
+}
+
+impl<T, C: MemConfig> SegmentIndex<T> for SegVec<T, C> {
+    #[inline]
+    fn index(&self, i: usize) -> &T {
+        Index::index(self, i)
+    }
+
+    #[inline]
+    fn segment_and_offset(&self, i: usize) -> (usize, usize) {
+        self.config.segment_and_offset(i)
+    }
+
+    #[inline]
+    fn segment(&self, i: usize) -> &[T] {
+        &self.segments[i]
+    }
+}
+
+impl<T, C: MemConfig> SegmentIndexMut<T> for SegVec<T, C>
+where
+    Self: IndexMut<usize, Output = T>,
+{
+    #[inline]
+    fn index_mut(&mut self, i: usize) -> &mut T {
+        IndexMut::index_mut(self, i)
+    }
+
+    #[inline]
+    fn segment_mut(&mut self, i: usize) -> &mut [T] {
+        &mut self.segments[i]
+    }
+
+    #[inline]
+    fn as_segment_index(&self) -> &dyn SegmentIndex<T> {
+        self
+    }
+}
+
 fn slice_index_to_base_index(
     start_idx: usize,
     slice_idx: usize,

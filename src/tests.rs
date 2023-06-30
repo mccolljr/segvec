@@ -508,6 +508,27 @@ fn test_slice_iter_mut() {
 }
 
 #[test]
+fn test_slice_mut_into_iter() {
+    let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+    v.push(8);
+    let mut s = v.slice_mut(..);
+    s[0] = 100;
+    s.into_iter().for_each(|v| *v *= 2);
+
+    assert_eq!(
+        v.into_iter().collect::<Vec<_>>(),
+        vec![200, 4, 6, 8, 10, 12, 14, 16]
+    );
+}
+
+#[test]
 fn test_slice_iter() {
     let mut v = SegVec::<i32, Exponential<1>>::new();
     v.push(1);

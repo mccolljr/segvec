@@ -1,4 +1,5 @@
 use crate::*;
+use either::Either;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
@@ -329,10 +330,9 @@ impl<'a, T: 'a> SliceMut<'a, T> {
         };
 
         SegmentedMutIter {
-            slice: self.into(),
+            slice: Either::Left((self.into(), PhantomData)),
             start,
             end,
-            _marker: PhantomData,
         }
     }
 
@@ -431,28 +431,61 @@ impl<'a, T: 'a> DoubleEndedIterator for SliceMutIter<'a, T> {
     }
 }
 
+impl<'a, T: 'a> IntoIterator for SliceMut<'a, T> {
+    type IntoIter = SliceMutIter<'a, T>;
+    type Item = &'a mut T;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let start = self.inner.segment_and_offset(self.start);
+        // The 'end' is inclusive because we don't want to spill into the next segment. For an
+        // empty slice we have to prevent integer underflow, we just store a (0,0), this will
+        // not be used later since len is checked first to be not zero.
+        let end = if self.len > 0 {
+            self.inner.segment_and_offset(self.start + self.len - 1)
+        } else {
+            (0, 0)
+        };
+
+        let self_end = self.len;
+
+        let seg_iter = SegmentedMutIter {
+            slice: Either::Right(self),
+            start,
+            end,
+        };
+
+        SliceMutIter {
+            iter: seg_iter.flatten(),
+            start: 0,
+            end: self_end,
+        }
+    }
+}
+
 /// Iterator over mutable references to slices of the elements of a [`SliceMut`][crate::SliceMut].
 pub struct SegmentedMutIter<'a, T: 'a> {
     // Safety:
     // We can not use a reference here because aliasing rules and `fn next(&self)` would
-    // introduce a lifetime on 'self while we keep 'a here. Using a pointer here will use the
-    // correctly erased lifetime when dereferencing it in `next()`. By constructing this
-    // Iterator from a &mut we ensure that there can be only one iterator, thus the pointer is
-    // non aliased.
+    // introduce a lifetime on 'self while we keep 'a here. Thus we `Either` store a lifetime
+    // erased NonNull here with the original Lifetime as PhantomData. Or we store a owned
+    // SliceMut in case of a `IntoIter`.
     //
     // Prior art: https://doc.rust-lang.org/std/slice/struct.ChunksMut.html
-    slice: NonNull<SliceMut<'a, T>>,
+    slice: Either<(NonNull<SliceMut<'a, T>>, PhantomData<&'a mut T>), SliceMut<'a, T>>,
     start: (usize, usize),
     end: (usize, usize),
-    _marker: PhantomData<&'a mut T>,
 }
 
 impl<'a, T: 'a> Iterator for SegmentedMutIter<'a, T> {
     type Item = &'a mut [T];
 
     fn next(&mut self) -> Option<Self::Item> {
-        // SAFETY: this pointer is always initialized to a valid and non-aliased reference.
-        let slice = unsafe { self.slice.as_mut() };
+        let slice = match self.slice.as_mut() {
+            // SAFETY: this pointer is always initialized to a valid and non-aliased reference.
+            Either::Left(s) => unsafe { s.0.as_mut() },
+            // SAFETY: we need to get the lifetime of 'self' here
+            Either::Right(s) => unsafe { (s as *mut SliceMut<_>).as_mut().unwrap_unchecked() },
+        };
 
         // We never return an empty slice
         if slice.len == 0 || self.start.0 > self.end.0 {
@@ -479,8 +512,12 @@ impl<'a, T: 'a> ExactSizeIterator for SegmentedMutIter<'a, T> {}
 
 impl<'a, T: 'a> DoubleEndedIterator for SegmentedMutIter<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        // SAFETY: this pointer is always initialized to a valid and non-aliased reference.
-        let slice = unsafe { self.slice.as_mut() };
+        let slice = match self.slice.as_mut() {
+            // SAFETY: this pointer is always initialized to a valid and non-aliased reference.
+            Either::Left(s) => unsafe { s.0.as_mut() },
+            // SAFETY: we need to get the lifetime of 'self' here
+            Either::Right(s) => unsafe { (s as *mut SliceMut<_>).as_mut().unwrap_unchecked() },
+        };
 
         let start = (self.start.0, self.start.1);
         let end = (self.end.0, self.end.1);

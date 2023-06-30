@@ -48,11 +48,10 @@ pub mod detail {
 }
 
 use std::cmp;
-// TODO: unused yet use std::convert::TryFrom;
 use std::default::Default;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::iter::{FromIterator, FusedIterator};
+use std::iter::{Flatten, FromIterator, FusedIterator};
 use std::mem;
 use std::ops::{Bound, Index, IndexMut, RangeBounds};
 
@@ -573,7 +572,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     where
         R: RangeBounds<usize>,
     {
-        let (start, end) = self.bounds("SegVec::drain", range);
+        let (start, end) = bounds(self.len, "SegVec::drain", range);
         Drain {
             inner: self,
             drained: 0,
@@ -600,7 +599,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     where
         R: RangeBounds<usize>,
     {
-        let (start, end) = self.bounds("SegVec::slice", range);
+        let (start, end) = bounds(self.len, "SegVec::slice", range);
         Slice {
             inner: self,
             start,
@@ -628,7 +627,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
     where
         R: RangeBounds<usize>,
     {
-        let (start, end) = self.bounds("SegVec::slice_mut", range);
+        let (start, end) = bounds(self.len, "SegVec::slice_mut", range);
         SliceMut {
             inner: self,
             start,
@@ -751,34 +750,6 @@ impl<T, C: MemConfig> SegVec<T, C> {
             //    from valid references to some element T in the structure.
             unsafe { std::ptr::swap(a_ptr, b_ptr) };
         }
-    }
-
-    fn bounds<R>(&self, caller: &str, range: R) -> (usize, usize)
-    where
-        R: RangeBounds<usize>,
-    {
-        let size = self.len;
-        let start = range.start_bound();
-        let start = match start {
-            Bound::Included(&start) => start,
-            Bound::Excluded(start) => start.checked_add(1).expect("start bound fits into usize"),
-            Bound::Unbounded => 0,
-        };
-
-        let end = range.end_bound();
-        let end = match end {
-            Bound::Included(end) => end.checked_add(1).expect("end bound fits into usize"),
-            Bound::Excluded(&end) => end,
-            Bound::Unbounded => size,
-        };
-
-        if start > end {
-            panic!("{}: lower bound {} > upper bound {}", caller, start, end);
-        }
-        if end > size {
-            index_oob(caller, end, size);
-        }
-        (start, end)
     }
 }
 
@@ -1014,9 +985,33 @@ impl<'a, T, C: MemConfig> Drop for Drain<'a, T, C> {
     }
 }
 
+// Extends Index<> with methods to get segments and (segment,offset) tuples
+trait SegmentIndex<T>: Index<usize, Output = T> {
+    fn index(&self, i: usize) -> &T;
+    fn segment_and_offset(&self, i: usize) -> (usize, usize);
+    fn segment(&self, i: usize) -> &[T];
+}
+
+impl<T, C: MemConfig> SegmentIndex<T> for SegVec<T, C> {
+    #[inline]
+    fn index(&self, i: usize) -> &T {
+        Index::index(self, i)
+    }
+
+    #[inline]
+    fn segment_and_offset(&self, i: usize) -> (usize, usize) {
+        self.config.segment_and_offset(i)
+    }
+
+    #[inline]
+    fn segment(&self, i: usize) -> &[T] {
+        &self.segments[i]
+    }
+}
+
 /// Provides an immutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct Slice<'a, T: 'a> {
-    inner: &'a (dyn Index<usize, Output = T>),
+    inner: &'a (dyn SegmentIndex<T>),
     start: usize,
     len: usize,
 }
@@ -1045,8 +1040,45 @@ impl<'a, T: 'a> Slice<'a, T> {
     /// [`Slice`][crate::Slice].
     pub fn iter(&self) -> SliceIter<'a, T> {
         SliceIter {
-            slice: *self,
+            iter: self.segmented_iter().flatten(),
+            len: self.len,
             index: 0,
+        }
+    }
+
+    /// Returns an iterator over immutable references slices of elements of the
+    /// [`Slice`][crate::Slice].
+    pub fn segmented_iter(&self) -> SegmentedIter<'a, T> {
+        let start = self.inner.segment_and_offset(self.start);
+        // The 'end' is inclusive because we don't want to spill into the next segment. For an
+        // empty slice we have to prevent integer underflow, we just store a (0,0), this will
+        // not be used later since len is checked first to be not zero.
+        let end = if self.len > 0 {
+            self.inner.segment_and_offset(self.start + self.len - 1)
+        } else {
+            (0, 0)
+        };
+
+        SegmentedIter {
+            slice: *self,
+            start,
+            end,
+            segment_index: start.0,
+        }
+    }
+
+    /// Sub-slices an existing slice, returns a new [`Slice`][crate::Slice] covering the given
+    /// `range`.
+    ///
+    /// # Panics
+    /// - If the end index is greater than `self.len()`
+    /// - If the start index is greater than the end index.
+    pub fn slice<R: RangeBounds<usize>>(&self, range: R) -> Self {
+        let (start, end) = bounds(self.len, "Slice::subslice", range);
+        Slice {
+            inner: self.inner,
+            start: self.start + start,
+            len: end - start,
         }
     }
 }
@@ -1056,7 +1088,7 @@ impl<'a, T: 'a> Index<usize> for Slice<'a, T> {
 
     fn index(&self, index: usize) -> &'a Self::Output {
         match slice_index_to_base_index(self.start, index, self.len) {
-            Some(idx) => self.inner.index(idx),
+            Some(idx) => SegmentIndex::index(self.inner, idx),
             _ => index_oob("Slice::index", index, self.len),
         }
     }
@@ -1073,36 +1105,76 @@ impl<'a, T: 'a> IntoIterator for Slice<'a, T> {
 
 /// Iterator over immutable references to the elements of a [`Slice`][crate::Slice].
 pub struct SliceIter<'a, T: 'a> {
-    slice: Slice<'a, T>,
+    iter: Flatten<SegmentedIter<'a, T>>,
+    // Since Flatten is opaque we have to do our own accounting for size_hint here.
+    len: usize,
     index: usize,
 }
 
 impl<'a, T: 'a> Iterator for SliceIter<'a, T> {
     type Item = &'a T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.slice.len {
-            let index = self.index;
-            self.index += 1;
-            // SAFETY:
-            // 1. index corresponds to a valid value in the slice
-            // 2. the value at index must live for at least the lifetime 'a
-            // 3. from #1+2, it is known that a taking an &'a to the value in the
-            //    slice is safe
-            Some(unsafe { &*(self.slice.index(index) as *const T) })
-        } else {
-            None
-        }
+        self.index += 1;
+        self.iter.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let left = self.slice.len - self.index;
+        let left = self.len - self.index;
         (left, Some(left))
     }
 }
 
 impl<'a, T: 'a> FusedIterator for SliceIter<'a, T> {}
 impl<'a, T: 'a> ExactSizeIterator for SliceIter<'a, T> {}
+
+/// Iterator over immutable references to slices of the elements of a [`Slice`][crate::Slice].
+pub struct SegmentedIter<'a, T: 'a> {
+    slice: Slice<'a, T>,
+    start: (usize, usize),
+    end: (usize, usize),
+    segment_index: usize,
+}
+
+impl<'a, T: 'a> Iterator for SegmentedIter<'a, T> {
+    type Item = &'a [T];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // We never return a empty slice
+        if self.slice.len == 0 || self.segment_index > self.end.0 {
+            return None;
+        }
+
+        let ret = if self.segment_index == self.start.0 {
+            // first segment
+            if self.start.0 == self.end.0 {
+                // start and end are in the same segment
+                &self.slice.inner.segment(self.segment_index)[self.start.1..=self.end.1]
+            } else {
+                // from start to end of first segment
+                &self.slice.inner.segment(self.segment_index)[self.start.1..]
+            }
+        } else if self.segment_index == self.end.0 {
+            //last segment
+            &self.slice.inner.segment(self.segment_index)[..=self.end.1]
+        } else {
+            // some segment in between
+            &self.slice.inner.segment(self.segment_index)
+        };
+
+        self.segment_index += 1;
+        Some(ret)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let left = 1 + self.end.0 - self.segment_index;
+        (left, Some(left))
+    }
+}
+
+impl<'a, T: 'a> FusedIterator for SegmentedIter<'a, T> {}
+impl<'a, T: 'a> ExactSizeIterator for SegmentedIter<'a, T> {}
 
 /// Provides a mutable view of elements from a range in [`SegVec`][crate::SegVec].
 pub struct SliceMut<'a, T: 'a> {
@@ -1216,4 +1288,31 @@ fn index_oob(caller: &str, idx: usize, len: usize) -> ! {
         "{}: index out of bounds: index is {}, len is {}",
         caller, idx, len
     )
+}
+
+fn bounds<R>(len: usize, caller: &str, range: R) -> (usize, usize)
+where
+    R: RangeBounds<usize>,
+{
+    let start = range.start_bound();
+    let start = match start {
+        Bound::Included(&start) => start,
+        Bound::Excluded(start) => start.checked_add(1).expect("start bound fits into usize"),
+        Bound::Unbounded => 0,
+    };
+
+    let end = range.end_bound();
+    let end = match end {
+        Bound::Included(end) => end.checked_add(1).expect("end bound fits into usize"),
+        Bound::Excluded(&end) => end,
+        Bound::Unbounded => len,
+    };
+
+    if start > end {
+        panic!("{}: lower bound {} > upper bound {}", caller, start, end);
+    }
+    if end > len {
+        index_oob(caller, end, len);
+    }
+    (start, end)
 }

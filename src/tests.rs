@@ -363,6 +363,7 @@ fn test_slice() {
     let s3 = v.slice(2..6);
     let s4 = v.slice(..);
     let s5 = v.slice(..0);
+    let s6 = v.slice(1..1);
     // invalid:
     // v.truncate(0); // <- Slices immutably borrow the underlying SegVec
     assert_eq!(s1.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3, 4]);
@@ -373,7 +374,82 @@ fn test_slice() {
         vec![1, 2, 3, 4, 5, 6, 7, 8]
     );
     assert_eq!(s5.iter().copied().collect::<Vec<i32>>(), vec![]);
+    assert_eq!(s6.iter().copied().collect::<Vec<i32>>(), vec![]);
 }
+
+#[test]
+fn test_subslice() {
+    let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+    v.push(8);
+    let slice = v.slice(..);
+    assert_eq!(
+        slice.iter().copied().collect::<Vec<_>>(),
+        vec![1, 2, 3, 4, 5, 6, 7, 8]
+    );
+
+    let subslice = slice.slice(2..5);
+    assert_eq!(subslice.iter().copied().collect::<Vec<_>>(), vec![3, 4, 5]);
+
+    let subslice = slice.slice(..5);
+    assert_eq!(
+        subslice.iter().copied().collect::<Vec<_>>(),
+        vec![1, 2, 3, 4, 5]
+    );
+
+    let subslice = slice.slice(2..);
+    assert_eq!(
+        subslice.iter().copied().collect::<Vec<_>>(),
+        vec![3, 4, 5, 6, 7, 8]
+    );
+
+    let subslice = slice.slice(2..=5);
+    assert_eq!(
+        subslice.iter().copied().collect::<Vec<_>>(),
+        vec![3, 4, 5, 6]
+    );
+
+    let subslice = slice.slice(..);
+    assert_eq!(
+        subslice.iter().copied().collect::<Vec<_>>(),
+        vec![1, 2, 3, 4, 5, 6, 7, 8]
+    );
+}
+
+// PLANNED: use from_iter as in https://github.com/mccolljr/segvec/pull/26#issuecomment-1614107293
+// #[test]
+// fn from_slice() {
+//     let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
+//     v.push(1);
+//     v.push(2);
+//     v.push(3);
+//     v.push(4);
+//     v.push(5);
+//     v.push(6);
+//     v.push(7);
+//     v.push(8);
+//     let slice = v.slice(..);
+//     assert_eq!(
+//         slice.iter().copied().collect::<Vec<_>>(),
+//         vec![1, 2, 3, 4, 5, 6, 7, 8]
+//     );
+// 
+//     let subslice = slice.slice(2..5);
+//     assert_eq!(subslice.iter().copied().collect::<Vec<_>>(), vec![3, 4, 5]);
+// 
+//     let v2 = SegVec::<_, Exponential<1>>::from(&subslice);
+//     assert_eq!(v2.iter().copied().collect::<Vec<_>>(), vec![3, 4, 5]);
+// 
+//     // can be used to change the MemConfig as well
+//     let v2 = SegVec::<_, Linear<4>>::from(subslice);
+//     assert_eq!(v2.iter().copied().collect::<Vec<_>>(), vec![3, 4, 5]);
+// }
 
 #[test]
 fn test_slice_mut() {
@@ -395,6 +471,73 @@ fn test_slice_mut() {
         v.into_iter().collect::<Vec<_>>(),
         vec![200, 4, 6, 8, 10, 12, 14, 16]
     );
+}
+
+#[test]
+fn test_slice_iter() {
+    let mut v = SegVec::<i32, Exponential<1>>::new();
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+    assert_eq!(v.len(), 7);
+    assert_eq!(v.capacity(), 8);
+
+    let s = v.slice(..);
+
+    assert_eq!(s.iter().size_hint(), (7, Some(7)));
+    assert_eq!(
+        s.iter().copied().collect::<Vec<_>>(),
+        vec![1, 2, 3, 4, 5, 6, 7]
+    );
+    // PLANNED: DoubleEndedIterator for SliceIter
+    // assert_eq!(
+    //     s.iter().rev().copied().collect::<Vec<_>>(),
+    //     vec![7, 6, 5, 4, 3, 2, 1]
+    // );
+
+    let mut iter = s.iter();
+    assert_eq!(iter.next().unwrap(), &1);
+    // PLANNED: assert_eq!(iter.next_back().unwrap(), &7);
+    assert_eq!(iter.size_hint(), (6, Some(6)));
+    assert_eq!(iter.next().unwrap(), &2);
+    // PLANNED: assert_eq!(iter.next_back().unwrap(), &6);
+    assert_eq!(iter.size_hint(), (5, Some(5)));
+    assert_eq!(iter.next().unwrap(), &3);
+    // PLANNED: assert_eq!(iter.next_back().unwrap(), &5);
+    assert_eq!(iter.size_hint(), (4, Some(4)));
+    // PLANNED: assert_eq!(iter.next_back().unwrap(), &4);
+    //assert_eq!(iter.size_hint(), (0, Some(0)));
+
+    assert_eq!(s.len(), 7);
+    // PLANNED: assert_eq!(v.capacity(), 8);
+}
+
+#[test]
+fn test_segmented_iter() {
+    let mut v = SegVec::<i32, Exponential<1>>::new();
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+    assert_eq!(v.len(), 7);
+    assert_eq!(v.capacity(), 8);
+
+    let mut iter = v.slice(..).segmented_iter();
+    assert_eq!(iter.size_hint(), (4, Some(4)));
+    assert_eq!(iter.next().unwrap(), &[1]);
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+    assert_eq!(iter.next().unwrap(), &[2]);
+    assert_eq!(iter.size_hint(), (2, Some(2)));
+    assert_eq!(iter.next().unwrap(), &[3, 4]);
+    assert_eq!(iter.next().unwrap(), &[5, 6, 7]);
+    assert_eq!(iter.size_hint(), (0, Some(0)));
 }
 
 #[test]

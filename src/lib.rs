@@ -854,20 +854,6 @@ impl<T, C: MemConfig> IntoIterator for SegVec<T, C> {
     }
 }
 
-/// Creates an new [`SegVec`][crate::SegVec] from a [`Slice`][crate::Slice].
-impl<T: Clone, C: MemConfig> From<Slice<'_, T>> for SegVec<T, C> {
-    fn from(slice: Slice<'_, T>) -> Self {
-        slice.iter().cloned().collect()
-    }
-}
-
-/// Creates an new [`SegVec`][crate::SegVec] from a reference to [`Slice`][crate::Slice].
-impl<T: Clone, C: MemConfig> From<&Slice<'_, T>> for SegVec<T, C> {
-    fn from(slice: &Slice<'_, T>) -> Self {
-        slice.iter().cloned().collect()
-    }
-}
-
 /// Iterator over immutable references to items in a [`SegVec`][crate::SegVec].
 pub struct Iter<'a, T> {
     size: usize,

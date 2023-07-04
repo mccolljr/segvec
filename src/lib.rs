@@ -980,17 +980,6 @@ impl<'a, T, C: MemConfig> Drop for Drain<'a, T, C> {
     }
 }
 
-/// Returns the highest power of 2 that is less than or equal to `v` when `v` is non-zero.
-/// If `v` is zero, `None` is returned.
-#[cfg(test)]
-fn checked_log2_floor(v: usize) -> Option<u32> {
-    if v > 0 {
-        Some((usize::BITS - 1) - v.leading_zeros())
-    } else {
-        None
-    }
-}
-
 #[cold]
 fn capacity_overflow() -> ! {
     panic!("SegVec: capacity overflow")

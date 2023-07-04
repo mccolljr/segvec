@@ -479,10 +479,10 @@ fn test_slice_mut() {
     // v.push(1000); // <- SliceMuts mutably borrow the underlying SegVec
     s[0] = 100;
     s.iter_mut().for_each(|v| *v *= 2);
-    // TODO: s.into_iter().for_each(|v| *v *= 2);
+    s.into_iter().for_each(|v| *v *= 2);
     assert_eq!(
         v.iter().copied().collect::<Vec<_>>(),
-        vec![200, 4, 6, 8, 10, 12, 14, 16]
+        vec![400, 8, 12, 16, 20, 24, 28, 32]
     );
 }
 

@@ -616,7 +616,7 @@ fn test_sort() {
         v.sort_unstable();
         if i > 0 {
             for j in 0..i - 1 {
-                assert!(&v[j] <= &v[j + 1], "{:?}", v);
+                assert!(v[j] <= v[j + 1], "{:?}", v);
             }
         }
     }

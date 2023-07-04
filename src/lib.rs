@@ -454,7 +454,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
                         seg_offset < seg_len,
                         "expected offset < len when inserting into a full segment"
                     );
-                    let new_displaced = std::ptr::read(&mut segment[seg_len - 1]);
+                    let new_displaced = std::ptr::read(&segment[seg_len - 1]);
                     let src_ptr = segment.as_mut_ptr().add(seg_offset);
                     let dst_ptr = src_ptr.add(1);
                     std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset - 1);
@@ -555,7 +555,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
         }
         // total length has decreased by 1, reflect this
         self.len -= 1;
-        return removed;
+        removed
     }
 
     /// Returns an iterator that removes and returns values from within the given range of the
@@ -807,7 +807,7 @@ where
         if self.len() != other.len() {
             return false;
         }
-        (0..self.len()).all(|i| &self[i] == &other[i])
+        (0..self.len()).all(|i| self[i] == other[i])
     }
 }
 

@@ -471,6 +471,7 @@ pub struct SegmentedMutIter<'a, T: 'a> {
     // SliceMut in case of a `IntoIter`.
     //
     // Prior art: https://doc.rust-lang.org/std/slice/struct.ChunksMut.html
+    #[allow(clippy::type_complexity)]
     slice: Either<(NonNull<SliceMut<'a, T>>, PhantomData<&'a mut T>), SliceMut<'a, T>>,
     start: (usize, usize),
     end: (usize, usize),

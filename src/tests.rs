@@ -377,6 +377,17 @@ fn test_slice() {
     assert_eq!(s6.iter().copied().collect::<Vec<i32>>(), vec![]);
 }
 
+// this must not compile
+// #[test]
+// fn test_slice_lifetime() {
+//     let mut v = SegVec::<i32>::new();
+//     v.push(1);
+//     let s = v.slice(..);
+//     // drop v while using s later
+//     drop(v);
+//     assert_eq!(s[0], 1);
+// }
+
 #[test]
 fn test_subslice() {
     let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
@@ -463,10 +474,54 @@ fn test_slice_mut() {
     v.push(7);
     v.push(8);
     let mut s = v.slice_mut(..);
+    assert_eq!(s[7], 8);
     // invalid:
     // v.push(1000); // <- SliceMuts mutably borrow the underlying SegVec
     s[0] = 100;
+    s.iter_mut().for_each(|v| *v *= 2);
     s.into_iter().for_each(|v| *v *= 2);
+    assert_eq!(
+        v.iter().copied().collect::<Vec<_>>(),
+        vec![400, 8, 12, 16, 20, 24, 28, 32]
+    );
+}
+
+#[test]
+fn test_slice_iter_mut() {
+    let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+    v.push(8);
+    let mut s = v.slice_mut(..);
+    s.iter_mut().for_each(|v| *v *= 2);
+    s.iter_mut().for_each(|v| *v *= 2);
+
+    assert_eq!(
+        s.iter().copied().collect::<Vec<_>>(),
+        vec![4, 8, 12, 16, 20, 24, 28, 32]
+    );
+}
+
+#[test]
+fn test_slice_mut_into_iter() {
+    let mut v = SegVec::<_, Exponential<1>>::with_capacity(8);
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+    v.push(8);
+    let mut s = v.slice_mut(..);
+    s[0] = 100;
+    s.into_iter().for_each(|v| *v *= 2);
+
     assert_eq!(
         v.into_iter().collect::<Vec<_>>(),
         vec![200, 4, 6, 8, 10, 12, 14, 16]
@@ -493,27 +548,42 @@ fn test_slice_iter() {
         s.iter().copied().collect::<Vec<_>>(),
         vec![1, 2, 3, 4, 5, 6, 7]
     );
-    // PLANNED: DoubleEndedIterator for SliceIter
-    // assert_eq!(
-    //     s.iter().rev().copied().collect::<Vec<_>>(),
-    //     vec![7, 6, 5, 4, 3, 2, 1]
-    // );
+    assert_eq!(
+        s.iter().rev().copied().collect::<Vec<_>>(),
+        vec![7, 6, 5, 4, 3, 2, 1]
+    );
 
     let mut iter = s.iter();
     assert_eq!(iter.next().unwrap(), &1);
-    // PLANNED: assert_eq!(iter.next_back().unwrap(), &7);
-    assert_eq!(iter.size_hint(), (6, Some(6)));
-    assert_eq!(iter.next().unwrap(), &2);
-    // PLANNED: assert_eq!(iter.next_back().unwrap(), &6);
+    assert_eq!(iter.next_back().unwrap(), &7);
     assert_eq!(iter.size_hint(), (5, Some(5)));
+    assert_eq!(iter.next().unwrap(), &2);
+    assert_eq!(iter.next_back().unwrap(), &6);
+    assert_eq!(iter.size_hint(), (3, Some(3)));
     assert_eq!(iter.next().unwrap(), &3);
-    // PLANNED: assert_eq!(iter.next_back().unwrap(), &5);
-    assert_eq!(iter.size_hint(), (4, Some(4)));
-    // PLANNED: assert_eq!(iter.next_back().unwrap(), &4);
-    //assert_eq!(iter.size_hint(), (0, Some(0)));
+    assert_eq!(iter.next_back().unwrap(), &5);
+    assert_eq!(iter.size_hint(), (1, Some(1)));
+    assert_eq!(iter.next_back().unwrap(), &4);
+    assert_eq!(iter.size_hint(), (0, Some(0)));
 
     assert_eq!(s.len(), 7);
-    // PLANNED: assert_eq!(v.capacity(), 8);
+}
+
+#[test]
+fn test_slice_into_iter() {
+    let mut v = SegVec::<i32, Exponential<1>>::new();
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    v.push(4);
+    v.push(5);
+    v.push(6);
+    v.push(7);
+
+    let i = v.slice(..).into_iter();
+
+    assert_eq!(i.size_hint(), (7, Some(7)));
+    assert_eq!(i.copied().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5, 6, 7]);
 }
 
 #[test]
@@ -538,6 +608,12 @@ fn test_segmented_iter() {
     assert_eq!(iter.next().unwrap(), &[3, 4]);
     assert_eq!(iter.next().unwrap(), &[5, 6, 7]);
     assert_eq!(iter.size_hint(), (0, Some(0)));
+
+    let mut iter = v.slice(..).segmented_iter();
+    assert_eq!(iter.next_back().unwrap(), &[5, 6, 7]);
+    assert_eq!(iter.next_back().unwrap(), &[3, 4]);
+    assert_eq!(iter.next_back().unwrap(), &[2]);
+    assert_eq!(iter.next_back().unwrap(), &[1]);
 }
 
 #[test]

@@ -16,6 +16,7 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 smallvec = { version = "1.10.0", features = ["const_generics", "union"], optional = true }
 thin-vec = { version = "0.2.3", optional = true }
 num-integer = "0.1.45"
+either = "1.8.1"
 
 [features]
 small-vec = ["smallvec"]

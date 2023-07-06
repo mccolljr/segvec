@@ -839,6 +839,14 @@ impl<T, C: MemConfig> FromIterator<T> for SegVec<T, C> {
     }
 }
 
+impl<'a, T: Clone + 'a, C: MemConfig> FromIterator<&'a T> for SegVec<T, C> {
+    fn from_iter<I: IntoIterator<Item = &'a T>>(iter: I) -> Self {
+        let mut v = SegVec::new();
+        v.extend(iter.into_iter().cloned());
+        v
+    }
+}
+
 impl<T, C: MemConfig> IntoIterator for SegVec<T, C> {
     type IntoIter = IntoIter<T>;
     type Item = T;

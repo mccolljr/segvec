@@ -133,6 +133,35 @@ impl<'a, T: 'a> IntoIterator for Slice<'a, T> {
     }
 }
 
+impl<'a, T: 'a> IntoIterator for &Slice<'a, T> {
+    type IntoIter = SliceIter<'a, T>;
+    type Item = &'a T;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let start = self.inner.segment_and_offset(self.start);
+        // The 'end' is inclusive because we don't want to spill into the next segment. For an
+        // empty slice we have to prevent integer underflow, we just store a (0,0), this will
+        // not be used later since len is checked first to be not zero.
+        let end = if self.len > 0 {
+            self.inner.segment_and_offset(self.start + self.len - 1)
+        } else {
+            (0, 0)
+        };
+
+        let seg_iter = SegmentedIter {
+            slice: *self,
+            start,
+            end,
+        };
+
+        SliceIter {
+            iter: seg_iter.flatten(),
+            start: 0,
+            end: self.len,
+        }
+    }
+}
+
 /// Iterator over immutable references to the elements of a [`Slice`][crate::Slice].
 pub struct SliceIter<'a, T: 'a> {
     iter: Flatten<SegmentedIter<'a, T>>,

@@ -220,10 +220,20 @@ impl<'a, T: 'a> Iterator for SegmentedIter<'a, T> {
             return None;
         }
 
-        let ret = if self.start.0 == self.end.0 {
-            &self.slice.inner.segment(self.start.0)[self.start.1..=self.end.1]
-        } else {
-            &self.slice.inner.segment(self.start.0)[self.start.1..]
+        // Safety: * Slices are always valid ranges
+        //         * We returned 'None' above when done
+        let ret = unsafe {
+            if self.start.0 == self.end.0 {
+                self.slice
+                    .inner
+                    .segment_unchecked(self.start.0)
+                    .get_unchecked(self.start.1..=self.end.1)
+            } else {
+                self.slice
+                    .inner
+                    .segment_unchecked(self.start.0)
+                    .get_unchecked(self.start.1..)
+            }
         };
         self.start = (self.start.0 + 1, 0);
         Some(ret)
@@ -245,16 +255,27 @@ impl<'a, T: 'a> DoubleEndedIterator for SegmentedIter<'a, T> {
             return None;
         }
 
-        let ret = if self.start.0 == self.end.0 {
-            &self.slice.inner.segment(self.end.0)[self.start.1..=self.end.1]
-        } else {
-            &self.slice.inner.segment(self.end.0)[..=self.end.1]
+        // Safety: * Slices are always valid ranges
+        //         * We returned 'None' above when done
+        let ret = unsafe {
+            if self.start.0 == self.end.0 {
+                self.slice
+                    .inner
+                    .segment_unchecked(self.end.0)
+                    .get_unchecked(self.start.1..=self.end.1)
+            } else {
+                self.slice
+                    .inner
+                    .segment_unchecked(self.end.0)
+                    .get_unchecked(..=self.end.1)
+            }
         };
         // need to be careful not to underflow self.end.0 when done.
         if self.end.0 != 0 {
             self.end = (
                 self.end.0 - 1,
-                self.slice.inner.segment(self.end.0 - 1).len() - 1,
+                // Safety: self.end.0 is a valid index (slice invariant) and not zero as checked above
+                unsafe { self.slice.inner.segment_unchecked(self.end.0 - 1).len() - 1 },
             );
         } else {
             // with start.0 > end.0 the iterator is flagged as 'done'
@@ -522,10 +543,20 @@ impl<'a, T: 'a> Iterator for SegmentedMutIter<'a, T> {
             return None;
         }
 
-        let ret = if self.start.0 == self.end.0 {
-            &mut slice.inner.segment_mut(self.start.0)[self.start.1..=self.end.1]
-        } else {
-            &mut slice.inner.segment_mut(self.start.0)[self.start.1..]
+        // Safety: * Slices are always valid ranges
+        //         * We returned 'None' above when done
+        let ret = unsafe {
+            if self.start.0 == self.end.0 {
+                slice
+                    .inner
+                    .segment_unchecked_mut(self.start.0)
+                    .get_unchecked_mut(self.start.1..=self.end.1)
+            } else {
+                slice
+                    .inner
+                    .segment_unchecked_mut(self.start.0)
+                    .get_unchecked_mut(self.start.1..)
+            }
         };
         self.start = (self.start.0 + 1, 0);
         Some(ret)
@@ -554,19 +585,37 @@ impl<'a, T: 'a> DoubleEndedIterator for SegmentedMutIter<'a, T> {
 
         // need to be careful not to underflow self.end.0 when done.
         if end.0 != 0 {
-            self.end = (end.0 - 1, slice.inner.segment(end.0 - 1).len() - 1);
+            self.end = (
+                end.0 - 1,
+                // Safety: self.end.0 is a valid index (slice invariant) and not zero as checked above
+                unsafe { slice.inner.segment_unchecked(end.0 - 1).len() - 1 },
+            );
         } else {
             // with start.0 > end.0 the iterator is flagged as 'done'
             self.start = (1, 0);
         }
 
         // We never return an empty slice
-        if slice.len == 0 || start.0 > end.0 {
-            None
-        } else if start.0 == end.0 {
-            Some(&mut slice.inner.segment_mut(end.0)[self.start.1..=end.1])
-        } else {
-            Some(&mut slice.inner.segment_mut(end.0)[..=end.1])
+        unsafe {
+            if slice.len == 0 || start.0 > end.0 {
+                None
+            } else if start.0 == end.0 {
+                // Safety: * Slices are always valid ranges
+                //         * We returned 'None' above when done
+                Some(
+                    slice
+                        .inner
+                        .segment_unchecked_mut(end.0)
+                        .get_unchecked_mut(self.start.1..=end.1),
+                )
+            } else {
+                Some(
+                    slice
+                        .inner
+                        .segment_unchecked_mut(end.0)
+                        .get_unchecked_mut(..=end.1),
+                )
+            }
         }
     }
 }
@@ -575,13 +624,13 @@ impl<'a, T: 'a> DoubleEndedIterator for SegmentedMutIter<'a, T> {
 pub(crate) trait SegmentIndex<T>: Index<usize, Output = T> {
     fn index(&self, i: usize) -> &T;
     fn segment_and_offset(&self, i: usize) -> (usize, usize);
-    fn segment(&self, i: usize) -> &[T];
+    unsafe fn segment_unchecked(&self, i: usize) -> &[T];
 }
 
 /// Extends SegmentIndex<> with methods for mutable access.
 pub(crate) trait SegmentIndexMut<T>: SegmentIndex<T> + IndexMut<usize, Output = T> {
     fn index_mut(&mut self, i: usize) -> &mut T;
-    fn segment_mut(&mut self, i: usize) -> &mut [T];
+    unsafe fn segment_unchecked_mut(&mut self, i: usize) -> &mut [T];
 
     // Downcasts `&SegmentIndexMut<T>` to `&SegmentIndex<T>`
     fn as_segment_index(&self) -> &dyn SegmentIndex<T>;
@@ -599,8 +648,8 @@ impl<T, C: MemConfig> SegmentIndex<T> for SegVec<T, C> {
     }
 
     #[inline]
-    fn segment(&self, i: usize) -> &[T] {
-        &self.segments[i]
+    unsafe fn segment_unchecked(&self, i: usize) -> &[T] {
+        self.segments.get_unchecked(i)
     }
 }
 
@@ -614,8 +663,8 @@ where
     }
 
     #[inline]
-    fn segment_mut(&mut self, i: usize) -> &mut [T] {
-        &mut self.segments[i]
+    unsafe fn segment_unchecked_mut(&mut self, i: usize) -> &mut [T] {
+        self.segments.get_unchecked_mut(i)
     }
 
     #[inline]

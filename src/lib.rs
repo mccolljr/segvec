@@ -29,6 +29,8 @@
 //! - `small-vec` - Uses [`SmallVec`](https://github.com/servo/rust-smallvec) instead of `Vec` to store the list of segments, allowing the first few segment headers to live on the stack. Can speed up access for small `SegVec` values.
 //! - `thin-segments` - Uses [`ThinVec`](https://github.com/Gankra/thin-vec) instead of `Vec` to store the data for each segment, meaning that each segment header takes up the space of a single `usize`, rathern than 3 when using `Vec`.
 
+#![allow(clippy::comparison_chain)]
+
 #[cfg(test)]
 mod tests;
 
@@ -452,7 +454,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
                         seg_offset < seg_len,
                         "expected offset < len when inserting into a full segment"
                     );
-                    let new_displaced = std::ptr::read(&mut segment[seg_len - 1]);
+                    let new_displaced = std::ptr::read(&segment[seg_len - 1]);
                     let src_ptr = segment.as_mut_ptr().add(seg_offset);
                     let dst_ptr = src_ptr.add(1);
                     std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset - 1);
@@ -553,7 +555,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
         }
         // total length has decreased by 1, reflect this
         self.len -= 1;
-        return removed;
+        removed
     }
 
     /// Returns an iterator that removes and returns values from within the given range of the
@@ -805,7 +807,7 @@ where
         if self.len() != other.len() {
             return false;
         }
-        (0..self.len()).all(|i| &self[i] == &other[i])
+        (0..self.len()).all(|i| self[i] == other[i])
     }
 }
 
@@ -977,17 +979,6 @@ impl<'a, T, C: MemConfig> ExactSizeIterator for Drain<'a, T, C> {}
 impl<'a, T, C: MemConfig> Drop for Drain<'a, T, C> {
     fn drop(&mut self) {
         self.for_each(drop);
-    }
-}
-
-/// Returns the highest power of 2 that is less than or equal to `v` when `v` is non-zero.
-/// If `v` is zero, `None` is returned.
-#[cfg(test)]
-fn checked_log2_floor(v: usize) -> Option<u32> {
-    if v > 0 {
-        Some((usize::BITS - 1) - v.leading_zeros())
-    } else {
-        None
     }
 }
 

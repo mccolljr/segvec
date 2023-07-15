@@ -18,7 +18,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let mut v: Vec<usize> = Vec::new();
         let mut r = 0xf00ba;
         for _ in 0..10000 {
-            v.push(fast_prng(&mut r) as usize);
+            v.push(fast_prng(&mut r));
         }
         b.iter(|| {
             let mut iterator = v.iter();
@@ -30,7 +30,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let mut v: SegVec<usize> = SegVec::new();
         let mut r = 0xf00ba;
         for _ in 0..10000 {
-            v.push(fast_prng(&mut r) as usize);
+            v.push(fast_prng(&mut r));
         }
 
         b.iter(|| {
@@ -43,7 +43,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let mut v: SegVec<usize> = SegVec::new();
         let mut r = 0xf00ba;
         for _ in 0..10000 {
-            v.push(fast_prng(&mut r) as usize);
+            v.push(fast_prng(&mut r));
         }
 
         b.iter(|| {
@@ -56,7 +56,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let mut v: SegVec<usize> = SegVec::new();
         let mut r = 0xf00ba;
         for _ in 0..10000 {
-            v.push(fast_prng(&mut r) as usize);
+            v.push(fast_prng(&mut r));
         }
 
         let slice = v.slice(100..9000);
@@ -70,13 +70,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let mut v: SegVec<usize> = SegVec::new();
         let mut r = 0xf00ba;
         for _ in 0..10000 {
-            v.push(fast_prng(&mut r) as usize);
+            v.push(fast_prng(&mut r));
         }
         let mut r = 0xbaf00;
 
         b.iter(|| {
             for _ in 0..N {
-                _ = black_box(v.get(fast_prng(&mut r) as usize % 8900));
+                _ = black_box(v.get(fast_prng(&mut r) % 8900));
             }
         });
     });

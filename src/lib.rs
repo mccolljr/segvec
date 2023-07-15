@@ -223,7 +223,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
     pub fn get(&self, index: usize) -> Option<&T> {
         if index < self.len {
             let (seg, offset) = self.config.segment_and_offset(index);
-            Some(&self.segments[seg][offset])
+            // Safety: we just checked `index < self.len`, thus this element must exist.
+            unsafe { Some(self.segments.get_unchecked(seg).get_unchecked(offset)) }
         } else {
             None
         }
@@ -242,7 +243,14 @@ impl<T, C: MemConfig> SegVec<T, C> {
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index < self.len {
             let (seg, offset) = self.config.segment_and_offset(index);
-            Some(&mut self.segments[seg][offset])
+            // Safety: we just checked `index < self.len`, thus this element must exist.
+            unsafe {
+                Some(
+                    self.segments
+                        .get_unchecked_mut(seg)
+                        .get_unchecked_mut(offset),
+                )
+            }
         } else {
             None
         }
@@ -260,9 +268,13 @@ impl<T, C: MemConfig> SegVec<T, C> {
     /// # Panics
     /// - If the required capacity overflows `usize`
     pub fn push(&mut self, val: T) {
+        // reserve will panic on overflow
         self.reserve(1);
         let (seg, _) = self.config.segment_and_offset(self.len);
-        self.segments[seg].push(val);
+        // Safety: we just reserved space for this element.
+        unsafe {
+            self.segments.get_unchecked_mut(seg).push(val);
+        }
         self.len += 1;
     }
 
@@ -282,8 +294,10 @@ impl<T, C: MemConfig> SegVec<T, C> {
                 let (seg, offset) = self.config.segment_and_offset(size);
                 self.len -= 1;
                 match offset {
-                    0 => self.segments[seg - 1].pop(),
-                    _ => self.segments[seg].pop(),
+                    // Safety: we checked above that `self.len > 0` thus we can pop the last
+                    //         element.
+                    0 => unsafe { self.segments.get_unchecked_mut(seg - 1).pop() },
+                    _ => unsafe { self.segments.get_unchecked_mut(seg).pop() },
                 }
             }
         }
@@ -311,7 +325,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
                 self.segments.drain(seg..);
             } else {
                 if len < self.len {
-                    self.segments[seg].drain(offset..);
+                    // Safety: we just checked `len < self.len`
+                    unsafe { self.segments.get_unchecked_mut(seg).drain(offset..) };
                 }
                 self.segments.drain(seg + 1..);
             }
@@ -428,7 +443,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
         let mut displaced = val;
         loop {
             let maybe_displaced = unsafe {
-                let segment = &mut self.segments[seg_idx];
+                // Safety: called index_oob above when out of range
+                let segment = self.segments.get_unchecked_mut(seg_idx);
                 let seg_len = segment.len();
                 let seg_cap = segment.capacity();
                 if seg_len == 0 {
@@ -454,7 +470,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
                         seg_offset < seg_len,
                         "expected offset < len when inserting into a full segment"
                     );
-                    let new_displaced = std::ptr::read(&segment[seg_len - 1]);
+                    // Safety: just asserted the validty.
+                    let new_displaced = std::ptr::read(segment.get_unchecked_mut(seg_len - 1));
                     let src_ptr = segment.as_mut_ptr().add(seg_offset);
                     let dst_ptr = src_ptr.add(1);
                     std::ptr::copy(src_ptr, dst_ptr, seg_len - seg_offset - 1);
@@ -500,9 +517,10 @@ impl<T, C: MemConfig> SegVec<T, C> {
         // SAFETY:
         // At this point, it is known that index points to a valid, non-zero-sized T in
         // the structure, and so it is safe to read a value of type T from this location
-        let removed = unsafe { std::ptr::read(&self.segments[seg_idx][seg_offset]) };
-        let mut orig_len = self.segments[seg_idx].len();
-        let mut orig_cap = self.segments[seg_idx].capacity();
+        let segment = unsafe { self.segments.get_unchecked(seg_idx) };
+        let removed = unsafe { std::ptr::read(segment.get_unchecked(seg_offset)) };
+        let mut orig_len = segment.len();
+        let mut orig_cap = segment.capacity();
         // SAFETY:
         // 1. index is known to be strictly less than self.len
         // 2. from #1, seg_offset is known to be strictly less than orig_len
@@ -517,10 +535,11 @@ impl<T, C: MemConfig> SegVec<T, C> {
             //  before copy: [_, X, a, b, c] (X is the value read into `removed`)
             //   after copy: [_, a, b, c, c]
             // after resize: [_, a, b, c]    (the second c is not dropped, per the implementation of `set_len`)
-            let dst_ptr = &mut self.segments[seg_idx][seg_offset] as *mut T;
+            let segment_mut = self.segments.get_unchecked_mut(seg_idx);
+            let dst_ptr = segment_mut.get_unchecked_mut(seg_offset) as *mut T;
             let src_ptr = dst_ptr.add(1);
             std::ptr::copy(src_ptr, dst_ptr, orig_len - seg_offset - 1);
-            self.segments[seg_idx].set_len(orig_len - 1);
+            segment_mut.set_len(orig_len - 1);
         }
         // if the initial segment was full, it may be necessary to shift elements back from subsequent segments to keep continuity
         while orig_len == orig_cap {
@@ -529,27 +548,35 @@ impl<T, C: MemConfig> SegVec<T, C> {
             if seg_idx >= self.segments.len() {
                 break;
             }
-            // the segment at seg_idx is now known to be in-bounds
-            orig_len = self.segments[seg_idx].len();
-            orig_cap = self.segments[seg_idx].capacity();
+            // SAFETY: the segment at seg_idx is now known to be in-bounds
+            let segment = unsafe { self.segments.get_unchecked(seg_idx) };
+            orig_len = segment.len();
+            orig_cap = segment.capacity();
             if orig_len > 0 {
                 // SAFETY:
                 // orig_len is known to be non-zero now, so reading from the 0th index in the segment at seg_idx is safe.
-                let displaced = unsafe { std::ptr::read(&self.segments[seg_idx][0]) };
-                // seg_idx-1 is known to exist, and to have exactly one empty slot to push into
-                self.segments[seg_idx - 1].push(displaced);
-                // SAFETY:
-                // 1. orig_len is known to be non-zero now, so the head of the segment is known to be a valid pointer to a T
-                // 2. from #1, 1 is known to be less than or equal to orig_len,
-                //    and orig_len - 1 is known to be greater than or equal to 0
-                // 3. from #1+2, the pseudo-operation copy(segment[1..orig_len], segment[0..orig_len-1]) is known to be valid
-                // 4. all elements from 0 to orig_len are initialized, by definition of orig_len
-                // 6. from #1 and #4, we know it is safe to set the length of the segment to orig_len-1
+                let displaced = unsafe {
+                    std::ptr::read(
+                        self.segments
+                            .get_unchecked_mut(seg_idx)
+                            .get_unchecked_mut(0),
+                    )
+                };
                 unsafe {
-                    let dst_ptr = self.segments[seg_idx].as_mut_ptr();
+                    // seg_idx-1 is known to exist, and to have exactly one empty slot to push into
+                    self.segments.get_unchecked_mut(seg_idx - 1).push(displaced);
+                    // SAFETY:
+                    // 1. orig_len is known to be non-zero now, so the head of the segment is known to be a valid pointer to a T
+                    // 2. from #1, 1 is known to be less than or equal to orig_len,
+                    //    and orig_len - 1 is known to be greater than or equal to 0
+                    // 3. from #1+2, the pseudo-operation copy(segment[1..orig_len], segment[0..orig_len-1]) is known to be valid
+                    // 4. all elements from 0 to orig_len are initialized, by definition of orig_len
+                    // 6. from #1 and #4, we know it is safe to set the length of the segment to orig_len-1
+                    let segment_mut = self.segments.get_unchecked_mut(seg_idx);
+                    let dst_ptr = segment_mut.as_mut_ptr();
                     let src_ptr = dst_ptr.add(1);
                     std::ptr::copy(src_ptr, dst_ptr, orig_len - 1);
-                    self.segments[seg_idx].set_len(orig_len - 1);
+                    segment_mut.set_len(orig_len - 1);
                 }
             }
         }
@@ -667,6 +694,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
         self.sort_unstable_by(Ord::cmp)
     }
 
+    // TODO: The indexing here can use .get_unchecked() as well, but I did not yet touched
+    //       this code (cehteh)
     fn _sort_partition<F>(&mut self, lo: usize, hi: usize, compare: &mut F) -> usize
     where
         F: FnMut(&T, &T) -> cmp::Ordering,
@@ -835,6 +864,14 @@ impl<T, C: MemConfig> FromIterator<T> for SegVec<T, C> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut v = SegVec::new();
         v.extend(iter);
+        v
+    }
+}
+
+impl<'a, T: Clone + 'a, C: MemConfig> FromIterator<&'a T> for SegVec<T, C> {
+    fn from_iter<I: IntoIterator<Item = &'a T>>(iter: I) -> Self {
+        let mut v = SegVec::new();
+        v.extend(iter.into_iter().cloned());
         v
     }
 }

@@ -230,6 +230,16 @@ impl<T, C: MemConfig> SegVec<T, C> {
         }
     }
 
+    /// Returns a reference to the data at the given index in the [`SegVec`][crate::SegVec].
+    ///
+    /// # Safety
+    ///
+    /// index validity is not checked.
+    pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+        let (seg, offset) = self.config.segment_and_offset(index);
+        self.segments.get_unchecked(seg).get_unchecked(offset)
+    }
+
     /// Returns a mutable reference to the data at the given index in the [`SegVec`][crate::SegVec],
     /// if it exists.
     ///
@@ -254,6 +264,16 @@ impl<T, C: MemConfig> SegVec<T, C> {
         } else {
             None
         }
+    }
+
+    /// Returns a mutable reference to the data at the given index in the [`SegVec`][crate::SegVec].
+    ///
+    /// # Safety
+    ///
+    /// index validity is not checked.
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        let (seg, offset) = self.config.segment_and_offset(index);
+        self.segments.get_unchecked_mut(seg).get_unchecked_mut(offset)
     }
 
     /// Pushes a new value onto the end of the [`SegVec`][crate::SegVec], resizing if necessary.

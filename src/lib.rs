@@ -235,6 +235,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
     /// # Safety
     ///
     /// index validity is not checked.
+    #[must_use]
+    #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
         let (seg, offset) = self.config.segment_and_offset(index);
         self.segments.get_unchecked(seg).get_unchecked(offset)
@@ -271,6 +273,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
     /// # Safety
     ///
     /// index validity is not checked.
+    #[must_use]
+    #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
         let (seg, offset) = self.config.segment_and_offset(index);
         self.segments.get_unchecked_mut(seg).get_unchecked_mut(offset)

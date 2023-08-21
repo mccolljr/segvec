@@ -115,6 +115,22 @@ fn test_truncate_custom_factor() {
 }
 
 #[test]
+fn test_get() {
+    const SIZE: usize = 10_000;
+    let mut s: SegVec<usize> = SegVec::new();
+    for i in 0..SIZE{
+        s.push(i);
+    }
+
+    for i in 0..SIZE{
+        assert_eq!(*s.get(i).unwrap(), i);
+        unsafe{
+            assert_eq!(*s.get_unchecked(i), i);
+        }
+    }
+}
+
+#[test]
 fn test_iter() {
     let mut v = SegVec::<i32, Exponential<1>>::new();
     v.push(1);

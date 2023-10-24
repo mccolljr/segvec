@@ -118,13 +118,13 @@ fn test_truncate_custom_factor() {
 fn test_get() {
     const SIZE: usize = 10_000;
     let mut s: SegVec<usize> = SegVec::new();
-    for i in 0..SIZE{
+    for i in 0..SIZE {
         s.push(i);
     }
 
-    for i in 0..SIZE{
+    for i in 0..SIZE {
         assert_eq!(*s.get(i).unwrap(), i);
-        unsafe{
+        unsafe {
             assert_eq!(*s.get_unchecked(i), i);
         }
     }
@@ -268,24 +268,26 @@ fn test_insert_remove() {
 #[test]
 fn test_drain() {
     fn make_segvec_8() -> (
-        Box<Cell<usize>>,
+        &'static Cell<usize>,
         SegVec<DropCount<'static, i32>, Exponential<1>>,
     ) {
-        let dc = Box::into_raw(Box::new(Cell::new(0)));
+        let dc = Box::leak(Box::new(Cell::new(0)));
         let mut v = SegVec::with_capacity(0);
-        v.push(DropCount(unsafe { &*dc }, 1));
-        v.push(DropCount(unsafe { &*dc }, 2));
-        v.push(DropCount(unsafe { &*dc }, 3));
-        v.push(DropCount(unsafe { &*dc }, 4));
-        v.push(DropCount(unsafe { &*dc }, 5));
-        v.push(DropCount(unsafe { &*dc }, 6));
-        v.push(DropCount(unsafe { &*dc }, 7));
-        v.push(DropCount(unsafe { &*dc }, 8));
-        // Safety: tests will drop all items before dropping the boxed cell
-        (unsafe { Box::from_raw(dc) }, v)
+        v.push(DropCount(&*dc, 1));
+        v.push(DropCount(&*dc, 2));
+        v.push(DropCount(&*dc, 3));
+        v.push(DropCount(&*dc, 4));
+        v.push(DropCount(&*dc, 5));
+        v.push(DropCount(&*dc, 6));
+        v.push(DropCount(&*dc, 7));
+        v.push(DropCount(&*dc, 8));
+        (dc, v)
     }
 
+    let mut to_cleanup = Vec::new();
     let (dc, mut sv) = make_segvec_8();
+    to_cleanup.push(dc);
+
     let d = sv.drain(2..7);
     drop(d);
     assert_eq!(dc.get(), 5);
@@ -298,6 +300,8 @@ fn test_drain() {
     for i in 0..=8 {
         // range ..i
         let (dc, mut sv) = make_segvec_8();
+        to_cleanup.push(dc);
+
         let d = sv.drain((Bound::Unbounded, Bound::Excluded(i)));
         let drained = d.map(|i| i.1).collect::<Vec<_>>();
         assert_eq!(dc.get(), i, "i={}", i);
@@ -306,6 +310,8 @@ fn test_drain() {
 
         // range 0..i
         let (dc, mut sv) = make_segvec_8();
+        to_cleanup.push(dc);
+
         let d = sv.drain((Bound::Included(0), Bound::Excluded(i)));
         let drained = d.map(|i| i.1).collect::<Vec<_>>();
         assert_eq!(dc.get(), i, "i={}", i);
@@ -315,6 +321,8 @@ fn test_drain() {
         if i > 0 {
             // range 1..i
             let (dc, mut sv) = make_segvec_8();
+            to_cleanup.push(dc);
+
             let d = sv.drain((Bound::Excluded(0), Bound::Excluded(i)));
             let drained = d.map(|i| i.1).collect::<Vec<_>>();
             assert_eq!(dc.get(), i - 1, "i={}", i);
@@ -323,6 +331,8 @@ fn test_drain() {
 
             // range 1..i
             let (dc, mut sv) = make_segvec_8();
+            to_cleanup.push(dc);
+
             let d = sv.drain((Bound::Included(1), Bound::Excluded(i)));
             let drained = d.map(|i| i.1).collect::<Vec<_>>();
             assert_eq!(dc.get(), i - 1, "i={}", i);
@@ -333,6 +343,8 @@ fn test_drain() {
         if i > 0 && i < 8 {
             // range 1..=i
             let (dc, mut sv) = make_segvec_8();
+            to_cleanup.push(dc);
+
             let d = sv.drain((Bound::Excluded(0), Bound::Included(i)));
             let drained = d.map(|i| i.1).collect::<Vec<_>>();
             assert_eq!(dc.get(), i, "i={}", i);
@@ -341,12 +353,18 @@ fn test_drain() {
 
             // range 1..=i
             let (dc, mut sv) = make_segvec_8();
+            to_cleanup.push(dc);
+
             let d = sv.drain((Bound::Included(1), Bound::Included(i)));
             let drained = d.map(|i| i.1).collect::<Vec<_>>();
             assert_eq!(dc.get(), i, "i={}", i);
             assert_eq!(sv.len(), 8 - i, "i={}", i);
             assert_eq!(drained, (2..=(i as i32 + 1)).collect::<Vec<_>>(), "i={}", i);
         }
+    }
+
+    for dc in to_cleanup.into_iter() {
+        unsafe { _ = Box::from_raw(dc as *const _ as *mut Cell<usize>) };
     }
 }
 
@@ -613,8 +631,10 @@ fn test_segmented_iter() {
 
 #[test]
 fn test_sort() {
+    const COUNT: usize = if cfg!(miri) { 32 } else { 1000 };
+
     let mut rng = rand::thread_rng();
-    for i in 0..1000usize {
+    for i in 0..COUNT {
         let mut v = SegVec::<_, Exponential<1>>::with_capacity(i);
         while v.len() < v.capacity() {
             v.push(rng.gen_range(0i32..100));
@@ -747,3 +767,4 @@ fn test_thin_segments_feature() {
 fn test_not_thin_segments_feature() {
     let _: detail::Segment<()> = Vec::new();
 }
+

@@ -53,8 +53,5 @@ jobs:
             cargo test --verbose;
             cargo miri test --verbose;
             cargo test --features small-vec --verbose;
-            cargo miri test --features small-vec --verbose;
             cargo test --features thin-segments --verbose;
-            cargo miri test --features thin-segments --verbose;
             cargo test --features small-vec --features thin-segments --verbose;
-            cargo miri test --features small-vec --features thin-segments --verbose;

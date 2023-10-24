@@ -277,7 +277,9 @@ impl<T, C: MemConfig> SegVec<T, C> {
     #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
         let (seg, offset) = self.config.segment_and_offset(index);
-        self.segments.get_unchecked_mut(seg).get_unchecked_mut(offset)
+        self.segments
+            .get_unchecked_mut(seg)
+            .get_unchecked_mut(offset)
     }
 
     /// Pushes a new value onto the end of the [`SegVec`][crate::SegVec], resizing if necessary.

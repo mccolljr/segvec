@@ -19,7 +19,7 @@ jobs:
         with:
           toolchain: stable
           override: true
-          components: rustfmt, clippy
+          components: rustfmt, clippy, miri
       - name: Run cargo check
         run: |
           cargo check --verbose;
@@ -32,3 +32,4 @@ jobs:
           cargo test --features small-vec --verbose;
           cargo test --features thin-segments --verbose;
           cargo test --features small-vec --features thin-segments --verbose;
+          cargo miri test --verbose;

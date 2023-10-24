@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-stable:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -32,3 +32,26 @@ jobs:
           cargo test --features small-vec --verbose;
           cargo test --features thin-segments --verbose;
           cargo test --features small-vec --features thin-segments --verbose;
+  build-nightly:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v2
+        - name: Install Rust
+          uses: actions-rs/toolchain@v1
+          with:
+            toolchain: nightly
+            override: true
+            components: rustfmt, clippy, miri
+        - name: Run cargo check
+          run: |
+            cargo check --verbose;
+            cargo check --features small-vec --verbose;
+            cargo check --features thin-segments --verbose;
+            cargo check --features small-vec --features thin-segments --verbose;
+        - name: Run tests
+          run: |
+            cargo test --verbose;
+            cargo miri test --verbose;
+            cargo test --features small-vec --verbose;
+            cargo test --features thin-segments --verbose;
+            cargo test --features small-vec --features thin-segments --verbose;

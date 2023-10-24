@@ -562,7 +562,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
             //   after copy: [_, a, b, c, c]
             // after resize: [_, a, b, c]    (the second c is not dropped, per the implementation of `set_len`)
             let segment_mut = self.segments.get_unchecked_mut(seg_idx);
-            let dst_ptr = segment_mut.get_unchecked_mut(seg_offset) as *mut T;
+            let segment_buf_ptr = segment_mut.as_mut_ptr();
+            let dst_ptr = segment_buf_ptr.add(seg_offset) as *mut T;
             let src_ptr = dst_ptr.add(1);
             std::ptr::copy(src_ptr, dst_ptr, orig_len - seg_offset - 1);
             segment_mut.set_len(orig_len - 1);

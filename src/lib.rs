@@ -794,8 +794,17 @@ impl<T, C: MemConfig> SegVec<T, C> {
 
     fn swap(&mut self, a: usize, b: usize) {
         if a != b && std::mem::size_of::<T>() > 0 {
-            let a_ptr = &mut self[a] as *mut T;
-            let b_ptr = &mut self[b] as *mut T;
+            let (a_seg_index, a_offset) = self.config.segment_and_offset(a);
+            let (b_seg_index, b_offset) = self.config.segment_and_offset(b);
+
+            let segments = &mut self.segments;
+
+            let a_segment_ptr = segments[a_seg_index].as_mut_ptr();
+            let a_ptr = unsafe { a_segment_ptr.add(a_offset) };
+
+            let b_segment_ptr = segments[b_seg_index].as_mut_ptr();
+            let b_ptr = unsafe { b_segment_ptr.add(b_offset) };
+
             // SAFETY:
             // 1. a != b, so a_ptr and b_ptr cannot alias one another
             // 2. If either a or b are invalid as indexes into the structure, a panic

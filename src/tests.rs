@@ -118,13 +118,13 @@ fn test_truncate_custom_factor() {
 fn test_get() {
     const SIZE: usize = 10_000;
     let mut s: SegVec<usize> = SegVec::new();
-    for i in 0..SIZE{
+    for i in 0..SIZE {
         s.push(i);
     }
 
-    for i in 0..SIZE{
+    for i in 0..SIZE {
         assert_eq!(*s.get(i).unwrap(), i);
-        unsafe{
+        unsafe {
             assert_eq!(*s.get_unchecked(i), i);
         }
     }
@@ -631,8 +631,10 @@ fn test_segmented_iter() {
 
 #[test]
 fn test_sort() {
+    const COUNT: usize = if cfg!(miri) { 32 } else { 1000 };
+
     let mut rng = rand::thread_rng();
-    for i in 0..1000usize {
+    for i in 0..COUNT {
         let mut v = SegVec::<_, Exponential<1>>::with_capacity(i);
         while v.len() < v.capacity() {
             v.push(rng.gen_range(0i32..100));
@@ -765,3 +767,4 @@ fn test_thin_segments_feature() {
 fn test_not_thin_segments_feature() {
     let _: detail::Segment<()> = Vec::new();
 }
+

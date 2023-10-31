@@ -91,6 +91,25 @@ impl<'a, T: 'a> Slice<'a, T> {
             len: end - start,
         }
     }
+
+    /// Tries to treat this SegVec [`Slice`] as a contiguous [`slice`]. This only
+    /// succeeds if all the elements of this [`Slice`] are in the same segment.
+    pub fn as_contiguous(&self) -> Option<&[T]> {
+        let (start_segment, start_offset) = self.inner.segment_and_offset(self.start);
+
+        if self.len == 0 {
+            // this could just return Some(&[]), but the address of the slice
+            // would be dangling - not sure if this matters much...
+            let segment = unsafe { self.inner.segment_unchecked(start_segment) };
+            return Some(&segment[start_offset..start_offset]);
+        }
+
+        let (end_segment, end_offset) = self.inner.segment_and_offset(self.start + self.len - 1);
+        (start_segment == end_segment).then(|| {
+            let segment = unsafe { self.inner.segment_unchecked(start_segment) };
+            &segment[start_offset..end_offset + 1]
+        })
+    }
 }
 
 impl<'a, T: 'a> Index<usize> for Slice<'a, T> {

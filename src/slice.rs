@@ -94,7 +94,7 @@ impl<'a, T: 'a> Slice<'a, T> {
 
     /// Tries to treat this SegVec [`Slice`] as a contiguous [`slice`]. This only
     /// succeeds if all the elements of this [`Slice`] are in the same segment.
-    pub fn as_contiguous(&self) -> Option<&[T]> {
+    pub fn as_contiguous(&self) -> Option<&'a [T]> {
         let (start_segment, start_offset) = self.inner.segment_and_offset(self.start);
 
         if self.len == 0 {

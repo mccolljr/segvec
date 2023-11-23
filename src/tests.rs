@@ -768,3 +768,36 @@ fn test_not_thin_segments_feature() {
     let _: detail::Segment<()> = Vec::new();
 }
 
+#[test]
+fn test_slice_as_contiguous() {
+    let mut sv: SegVec<i32, Linear<4>> = SegVec::with_capacity(4);
+
+    // first segment
+    sv.push(0);
+    sv.push(1);
+    sv.push(2);
+    sv.push(3);
+
+    // second segment
+    sv.push(4);
+    sv.push(5);
+    sv.push(6);
+    sv.push(7);
+
+    assert_eq!(sv.slice(2..2).as_contiguous(), Some([].as_slice()));
+
+    assert_eq!(
+        sv.slice(0..4).as_contiguous(),
+        Some([0, 1, 2, 3].as_slice())
+    );
+    assert_eq!(sv.slice(1..3).as_contiguous(), Some([1, 2].as_slice()));
+
+    assert!(sv.slice(0..5).as_contiguous().is_none());
+    assert!(sv.slice(3..8).as_contiguous().is_none());
+
+    assert_eq!(
+        sv.slice(4..8).as_contiguous(),
+        Some([4, 5, 6, 7].as_slice())
+    );
+    assert_eq!(sv.slice(5..7).as_contiguous(), Some([5, 6].as_slice()));
+}

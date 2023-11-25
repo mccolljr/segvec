@@ -282,6 +282,27 @@ impl<T, C: MemConfig> SegVec<T, C> {
             .get_unchecked_mut(offset)
     }
 
+    /// Pushes a new value onto the end of the [`SegVec`][crate::SegVec] assuming there is enough
+    /// space.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let mut v: SegVec<i32> = SegVec::with_capacity(1);
+    /// unsafe { v.push_unchecked(1) };
+    /// assert_eq!(v[0], 1);
+    /// ```
+    ///
+    /// # Safety
+    /// - Spare capacity must be greater than zero.
+    pub unsafe fn push_unchecked(&mut self, val: T) {
+        let (seg, _) = self.config.segment_and_offset(self.len);
+        // SAFETY: trust the caller - this is in the function contract
+        unsafe {
+            self.segments.get_unchecked_mut(seg).push(val);
+        }
+        self.len += 1;
+    }
+
     /// Pushes a new value onto the end of the [`SegVec`][crate::SegVec], resizing if necessary.
     ///
     /// ```
@@ -296,12 +317,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
     pub fn push(&mut self, val: T) {
         // reserve will panic on overflow
         self.reserve(1);
-        let (seg, _) = self.config.segment_and_offset(self.len);
-        // Safety: we just reserved space for this element.
-        unsafe {
-            self.segments.get_unchecked_mut(seg).push(val);
-        }
-        self.len += 1;
+        // SAFETY: we just reserved space for this element
+        unsafe { self.push_unchecked(val) };
     }
 
     /// Removes the last value from the [`SegVec`][crate::SegVec] and returns it, or returns `None`
@@ -813,6 +830,7 @@ impl<T, C: MemConfig> SegVec<T, C> {
             unsafe { std::ptr::swap(a_ptr, b_ptr) };
         }
     }
+
 }
 
 impl<T, C: MemConfig> Default for SegVec<T, C> {
@@ -885,7 +903,10 @@ impl<T, C: MemConfig> Extend<T> for SegVec<T, C> {
         let additional = std::cmp::max(max_size.unwrap_or(0), min_size);
         self.reserve(additional);
         for i in iter {
-            self.push(i);
+            // SAFETY: we just reserved space for these elements
+            unsafe {
+                self.push_unchecked(i);
+            }
         }
     }
 }

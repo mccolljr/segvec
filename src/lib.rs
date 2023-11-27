@@ -831,6 +831,45 @@ impl<T, C: MemConfig> SegVec<T, C> {
         }
     }
 
+    pub fn extend_from_slice(&mut self, mut slice: &[T])
+    where
+        T: Clone,
+    {
+        // reserve space for the additional elements
+        let extend_count = slice.len();
+        self.reserve(extend_count);
+
+        // get the segment index of first the empty element
+        let (mut segment_index, _) = self.segment_and_offset(self.len());
+        while !slice.is_empty() {
+            // create a mutable reference to the current segment index
+            let segment = &mut self.segments[segment_index];
+            let spare = segment.spare_capacity_mut();
+
+            // calculate how many elements can be cloned from the slice to the segment
+            let count = spare.len().min(slice.len());
+
+            // "take" count elements from the slice
+            let (extend_with, remainder) = slice.split_at(count);
+            slice = remainder;
+
+            // then, clone these elements to the slice!
+            // hopefully gets optimized into a memcpy for copy types
+            spare
+                .iter_mut()
+                .zip(extend_with.iter())
+                .for_each(|(uninit, x)| {
+                    uninit.write(x.clone());
+                });
+
+            // SAFETY: we just initialized these elements!
+            unsafe { segment.set_len(segment.len() + count) }
+            segment_index += 1;
+        }
+
+        // update the length accordingly
+        self.len += extend_count;
+    }
 }
 
 impl<T, C: MemConfig> Default for SegVec<T, C> {

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use segvec::*;
 
@@ -12,8 +14,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     //const N: i32 = 10000;
     const N: usize = 10000;
 
-    let mut group = c.benchmark_group("slice");
-
+    let mut group = c.benchmark_group("iterator & slice");
     group.bench_function("full Vec iteration", |b| {
         let mut v: Vec<usize> = Vec::new();
         let mut r = 0xf00ba;
@@ -79,6 +80,69 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 _ = black_box(v.get(fast_prng(&mut r) % 8900));
             }
         });
+    });
+
+    drop(group);
+    let mut group = c.benchmark_group("extend");
+    group.measurement_time(Duration::from_secs(20));
+
+    const EXTEND_LEN: usize = 8192;
+    group.bench_function("segvec extend", |b| {
+        let mut elements = [0; EXTEND_LEN];
+        let mut state = 0;
+        for x in elements.iter_mut() {
+            *x = fast_prng(&mut state);
+        }
+
+        b.iter_with_setup(
+            || SegVec::<usize>::new(),
+            |mut v| {
+                v.extend(black_box(&elements));
+            },
+        );
+    });
+    group.bench_function("segvec extend from slice", |b| {
+        let mut elements = [0; EXTEND_LEN];
+        let mut state = 0;
+        for x in elements.iter_mut() {
+            *x = fast_prng(&mut state);
+        }
+
+        b.iter_with_setup(
+            || SegVec::<usize>::new(),
+            |mut v| {
+                v.extend_from_slice(black_box(&elements));
+            },
+        );
+    });
+
+    group.bench_function("vec extend", |b| {
+        let mut elements = [0; EXTEND_LEN];
+        let mut state = 0;
+        for x in elements.iter_mut() {
+            *x = fast_prng(&mut state);
+        }
+
+        b.iter_with_setup(
+            || Vec::<usize>::new(),
+            |mut v| {
+                v.extend(black_box(&elements));
+            },
+        );
+    });
+    group.bench_function("vec extend from slice", |b| {
+        let mut elements = [0; EXTEND_LEN];
+        let mut state = 0;
+        for x in elements.iter_mut() {
+            *x = fast_prng(&mut state);
+        }
+
+        b.iter_with_setup(
+            || Vec::<usize>::new(),
+            |mut v| {
+                v.extend_from_slice(black_box(&elements));
+            },
+        );
     });
 }
 

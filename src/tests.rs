@@ -1,5 +1,5 @@
 use super::*;
-use rand::{self, Rng};
+use rand::{self, Fill, Rng};
 use std::{cell::Cell, collections::hash_map::DefaultHasher, hash::Hasher};
 
 struct DropCount<'a, T: Copy>(&'a Cell<usize>, T);
@@ -800,4 +800,31 @@ fn test_slice_as_contiguous() {
         Some([4, 5, 6, 7].as_slice())
     );
     assert_eq!(sv.slice(5..7).as_contiguous(), Some([5, 6].as_slice()));
+}
+
+#[test]
+fn test_extend_from_slice() {
+    let mut elements = [0u32; 100];
+    elements.try_fill(&mut rand::thread_rng()).unwrap();
+
+    // single iter
+    let mut sv: SegVec<u32> = SegVec::new();
+    sv.extend_from_slice(elements.as_slice());
+
+    assert_eq!(elements.len(), sv.len());
+    for (a, b) in elements.iter().zip(sv.iter()) {
+        assert_eq!(a, b);
+    }
+
+    // multiple iterations
+    let mut sv: SegVec<u32> = SegVec::new();
+
+    for _ in 0..8 {
+        sv.extend_from_slice(elements.as_slice());
+    }
+
+    assert_eq!(8 * elements.len(), sv.len());
+    for (a, b) in elements.iter().zip(sv.iter()) {
+        assert_eq!(a, b);
+    }
 }

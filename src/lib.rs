@@ -831,6 +831,11 @@ impl<T, C: MemConfig> SegVec<T, C> {
         }
     }
 
+    /// Clones and appends all elements in a slice to the `SegVec`.
+    ///
+    /// Iterates over the slice, clones each element, and then appends it to this `SegVec`. The slice is traversed in-order.
+    ///
+    /// Note that this function is same as `extend` except that it is specialized to work with slices instead.
     pub fn extend_from_slice(&mut self, mut slice: &[T])
     where
         T: Clone,

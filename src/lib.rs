@@ -944,12 +944,16 @@ impl<T, C: MemConfig> Extend<T> for SegVec<T, C> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let iter = iter.into_iter();
         let (min_size, max_size) = iter.size_hint();
-        let additional = std::cmp::max(max_size.unwrap_or(0), min_size);
-        self.reserve(additional);
-        for i in iter {
-            // SAFETY: we just reserved space for these elements
-            unsafe {
-                self.push_unchecked(i);
+        let hint_count = std::cmp::max(max_size.unwrap_or(0), min_size);
+        self.reserve(hint_count);
+        for (index, elem) in iter.enumerate() {
+            if index < hint_count {
+                // SAFETY: we just reserved space for these elements
+                unsafe {
+                    self.push_unchecked(elem);
+                }
+            } else {
+                self.push(elem);
             }
         }
     }

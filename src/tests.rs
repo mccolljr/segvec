@@ -824,7 +824,7 @@ fn test_extend_from_slice() {
     }
 
     assert_eq!(8 * elements.len(), sv.len());
-    for (a, b) in elements.iter().zip(sv.iter()) {
-        assert_eq!(a, b);
+    for (i, v) in sv.iter().enumerate() {
+        assert_eq!(v, &elements[i % elements.len()]);
     }
 }

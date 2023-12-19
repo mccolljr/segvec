@@ -27,7 +27,6 @@
 //! ## Features
 //!
 //! - `small-vec` - Uses [`SmallVec`](https://github.com/servo/rust-smallvec) instead of `Vec` to store the list of segments, allowing the first few segment headers to live on the stack. Can speed up access for small `SegVec` values.
-//! - `thin-segments` - Uses [`ThinVec`](https://github.com/Gankra/thin-vec) instead of `Vec` to store the data for each segment, meaning that each segment header takes up the space of a single `usize`, rathern than 3 when using `Vec`.
 
 #![allow(clippy::comparison_chain)]
 
@@ -41,9 +40,6 @@ mod slice;
 pub use slice::*;
 
 pub mod detail {
-    #[cfg(feature = "thin-segments")]
-    pub type Segment<T> = thin_vec::ThinVec<T>;
-    #[cfg(not(feature = "thin-segments"))]
     pub type Segment<T> = Vec<T>;
 
     #[cfg(feature = "small-vec")]

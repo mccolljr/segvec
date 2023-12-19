@@ -282,6 +282,27 @@ impl<T, C: MemConfig> SegVec<T, C> {
             .get_unchecked_mut(offset)
     }
 
+    /// Pushes a new value onto the end of the [`SegVec`][crate::SegVec] assuming there is enough
+    /// space.
+    ///
+    /// ```
+    /// # use segvec::SegVec;
+    /// let mut v: SegVec<i32> = SegVec::with_capacity(1);
+    /// unsafe { v.push_unchecked(1) };
+    /// assert_eq!(v[0], 1);
+    /// ```
+    ///
+    /// # Safety
+    /// - Spare capacity must be greater than zero.
+    pub unsafe fn push_unchecked(&mut self, val: T) {
+        let (seg, _) = self.config.segment_and_offset(self.len);
+        // SAFETY: trust the caller - this is in the function contract
+        unsafe {
+            self.segments.get_unchecked_mut(seg).push(val);
+        }
+        self.len += 1;
+    }
+
     /// Pushes a new value onto the end of the [`SegVec`][crate::SegVec], resizing if necessary.
     ///
     /// ```
@@ -296,12 +317,8 @@ impl<T, C: MemConfig> SegVec<T, C> {
     pub fn push(&mut self, val: T) {
         // reserve will panic on overflow
         self.reserve(1);
-        let (seg, _) = self.config.segment_and_offset(self.len);
-        // Safety: we just reserved space for this element.
-        unsafe {
-            self.segments.get_unchecked_mut(seg).push(val);
-        }
-        self.len += 1;
+        // SAFETY: we just reserved space for this element
+        unsafe { self.push_unchecked(val) };
     }
 
     /// Removes the last value from the [`SegVec`][crate::SegVec] and returns it, or returns `None`
@@ -813,6 +830,51 @@ impl<T, C: MemConfig> SegVec<T, C> {
             unsafe { std::ptr::swap(a_ptr, b_ptr) };
         }
     }
+
+    /// Clones and appends all elements in a slice to the `SegVec`.
+    ///
+    /// Iterates over the slice, clones each element, and then appends it to this `SegVec`. The slice is traversed in-order.
+    ///
+    /// Note that this function is same as `extend` except that it is specialized to work with slices instead.
+    pub fn extend_from_slice(&mut self, mut slice: &[T])
+    where
+        T: Clone,
+    {
+        // reserve space for the additional elements
+        let extend_count = slice.len();
+        self.reserve(extend_count);
+
+        // get the segment index of first the empty element
+        let (mut segment_index, _) = self.segment_and_offset(self.len());
+        while !slice.is_empty() {
+            // create a mutable reference to the current segment index
+            let segment = &mut self.segments[segment_index];
+            let spare = segment.spare_capacity_mut();
+
+            // calculate how many elements can be cloned from the slice to the segment
+            let count = spare.len().min(slice.len());
+
+            // "take" count elements from the slice
+            let (extend_with, remainder) = slice.split_at(count);
+            slice = remainder;
+
+            // then, clone these elements to the slice!
+            // hopefully gets optimized into a memcpy for copy types
+            spare
+                .iter_mut()
+                .zip(extend_with.iter())
+                .for_each(|(uninit, x)| {
+                    uninit.write(x.clone());
+                });
+
+            // SAFETY: we just initialized these elements!
+            unsafe { segment.set_len(segment.len() + count) }
+            segment_index += 1;
+        }
+
+        // update the length accordingly
+        self.len += extend_count;
+    }
 }
 
 impl<T, C: MemConfig> Default for SegVec<T, C> {
@@ -882,10 +944,17 @@ impl<T, C: MemConfig> Extend<T> for SegVec<T, C> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let iter = iter.into_iter();
         let (min_size, max_size) = iter.size_hint();
-        let additional = std::cmp::max(max_size.unwrap_or(0), min_size);
-        self.reserve(additional);
-        for i in iter {
-            self.push(i);
+        let hint_count = std::cmp::max(max_size.unwrap_or(0), min_size);
+        self.reserve(hint_count);
+        for (index, elem) in iter.enumerate() {
+            if index < hint_count {
+                // SAFETY: we just reserved space for these elements
+                unsafe {
+                    self.push_unchecked(elem);
+                }
+            } else {
+                self.push(elem);
+            }
         }
     }
 }

@@ -920,6 +920,19 @@ impl<T: Debug, C: MemConfig> Debug for SegVec<T, C> {
     }
 }
 
+impl<C: MemConfig> std::io::Write for SegVec<u8, C> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    #[inline]
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 impl<T: Hash, C: MemConfig> Hash for SegVec<T, C> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.iter().for_each(|i| i.hash(state));

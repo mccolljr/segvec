@@ -828,3 +828,18 @@ fn test_extend_from_slice() {
         assert_eq!(v, &elements[i % elements.len()]);
     }
 }
+
+#[test]
+fn test_write() {
+    use std::io::Write;
+
+    let mut sv: SegVec<u8> = SegVec::new();
+
+    let string = "hello from write_fmt in a segvec!";
+    sv.write_fmt(format_args!("{}", string)).unwrap();
+
+    assert_eq!(string.len(), sv.len());
+    for (a, b) in string.as_bytes().iter().zip(sv.iter()) {
+        assert_eq!(a, b);
+    }
+}

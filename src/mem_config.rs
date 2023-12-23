@@ -341,22 +341,22 @@ pub fn exponential_segment_and_offset() {
     }
 }
 
-// Expensive tests (hopefully) catching off by one errors, need to be explicitly enabled
+// Expensive tests (hopefully) catching off by one errors.
 
 #[test]
-#[ignore]
+#[cfg_attr(miri, ignore)]
 pub fn linear() {
     type DuT = Linear<64>;
 
     // segments
     let mut sum = 0_usize;
-    for i in 0..10000000000 {
+    for i in 0..1000000 {
         sum += DuT::new().segment_size(i);
         assert_eq!(DuT::new().capacity(i + 1), sum)
     }
 
     // indices
-    for i in 1..10000000000 {
+    for i in 1..1000000 {
         let (segment, index) = DuT::new().segment_and_offset(i);
         assert!(index < DuT::new().segment_size(segment));
         if index == 0 {
@@ -368,19 +368,19 @@ pub fn linear() {
 }
 
 #[test]
-#[ignore]
+#[cfg_attr(miri, ignore)]
 pub fn proportional() {
     type DuT = Proportional<4>;
 
     // segments
     let mut sum = 0_usize;
-    for i in 0..1000000000 {
+    for i in 0..1000000 {
         sum += DuT::new().segment_size(i);
         assert_eq!(DuT::new().capacity(i + 1), sum)
     }
 
     // indices
-    for i in 1..10000000000 {
+    for i in 1..1000000 {
         let (segment, index) = DuT::new().segment_and_offset(i);
         assert!(index < DuT::new().segment_size(segment));
         if index == 0 {
@@ -392,7 +392,7 @@ pub fn proportional() {
 }
 
 #[test]
-#[ignore]
+#[cfg_attr(miri, ignore)]
 pub fn exponential() {
     type DuT = Exponential<4>;
 
@@ -400,11 +400,13 @@ pub fn exponential() {
     let mut sum = 0_usize;
     for i in 0..60 {
         sum += DuT::new().segment_size(i);
-        assert_eq!(DuT::new().capacity(i + 1), sum)
+        let mut dut = DuT::new();
+        dut.update_capacity(i + 1);
+        assert_eq!(dut.capacity(i + 1), sum)
     }
 
     // indices
-    for i in 1..10000000000 {
+    for i in 1..1000000 {
         let (segment, index) = DuT::new().segment_and_offset(i);
         assert!(index < DuT::new().segment_size(segment));
         if index == 0 {

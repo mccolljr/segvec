@@ -41,9 +41,6 @@ mod slice;
 pub use slice::*;
 
 pub mod detail {
-    #[cfg(feature = "thin-segments")]
-    pub type Segment<T> = thin_vec::ThinVec<T>;
-    #[cfg(not(feature = "thin-segments"))]
     pub type Segment<T> = Vec<T>;
 
     #[cfg(feature = "small-vec")]

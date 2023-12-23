@@ -20,7 +20,6 @@ either = "1.8.1"
 
 [features]
 small-vec = ["smallvec"]
-thin-segments = ["thin-vec"]
 
 [[bench]]
 name = "segvec_benchmark"

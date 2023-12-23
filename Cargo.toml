@@ -9,14 +9,13 @@ repository = "https://github.com/mccolljr/segvec/"
 description = "SegVec data structure for rust. Similar to Vec, but allocates memory in chunks of increasing size"
 
 [dev-dependencies]
-rand = "0.8.4"
+rand = "0.8.5"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 
 [dependencies]
-smallvec = { version = "1.10.0", features = ["const_generics", "union"], optional = true }
-thin-vec = { version = "0.2.3", optional = true }
+smallvec = { version = "1.11.2", features = ["const_generics", "union"], optional = true }
 num-integer = "0.1.45"
-either = "1.8.1"
+either = "1.9.0"
 
 [features]
 small-vec = ["smallvec"]
